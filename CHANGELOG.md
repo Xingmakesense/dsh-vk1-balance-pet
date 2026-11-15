@@ -1,5 +1,20 @@
 # Changelog
 
+## v2.6.2 - 2026-11-15
+
+### Changed
+- **小黑板显示实时余额**：`drawnBalance()` 直接读 `state.real`，不再做「一分钱一分钱跳」的逐拍延迟显示；
+  `bookedBal` 仅用于内部对账，不再影响画面。
+- **轮询频率对齐 dsh-whale-widget**：余额轮询 `POLL_MS` 2s → **60s**（= whale 的 `REFRESH_MS`）；
+  `last-turn.json` 轮询 2.5s → **1s**（= whale 的 1s）。
+
+### Fixed
+- **扣血音效触发条件**：现在必须**同时满足**「累计消耗 ≥ 扣费步长」与「聊天窗口正在执行任务」才播；
+  空闲时间既不播、也不消耗 pending。之前是「每 60 秒一拍」，会把不足步长的差额也播出去。
+
+### Removed
+- `STEP_INTERVAL_SEC` / `state.stepClock`（被「步长 + busy」双条件取代）。
+
 ## v2.6.1 - 2026-11-15
 
 ### Fixed

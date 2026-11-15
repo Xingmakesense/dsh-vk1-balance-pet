@@ -86,7 +86,7 @@ function fixture(saved = {}) {
   })
   ctx.window = ctx
   const hook = `window.test = {
-    state, pat, applyBalance, startCredit, spawnRiceBowl, dropTick, dropPoint, onRiceFed, newBowl,
+    state, pat, applyBalance, drawnBalance, startCredit, spawnRiceBowl, dropTick, dropPoint, onRiceFed, newBowl,
     updateBowls, makeTick, frame, snapBounds, snapZones, settle, saveAnchor, applyAnchorPos,
     applySize, setScale, stepToScale, scaleToStep, baseSizePx, setDropInterval, restartDropTimer, CLICK_JUMP_DUR,
     updateRadar, buildMenu, openMenu, closeMenu,
@@ -105,38 +105,38 @@ function fixture(saved = {}) {
   return { ...ctx.test, storage, timers, docEvents, winEvents }
 }
 
-// ① 扣费步进 = 0.5 元；结算只在任务进行中、每 60s 一拍
+// ① 板面数字是实时余额；音效只在「累计消耗 ≥ 步长 且 任务进行中」时播
 {
   const t = fixture()
   assert.equal(t.stepValue(), 0.5, '默认扣费步长 0.5 元')
   t.applyBalance(10, false)
-  t.applyBalance(9, false) // 掉了 1 元 → 两个 0.5 步
-  assert.ok(Math.abs(t.state.pending - 1) < 1e-9, '统计到 1 元待扣')
-  // 空闲（taskBusy=false）时一帧都不结算
-  for (let ms = 1; ms < 2000; ms += 50) t.frame(ms)
-  assert.ok(Math.abs(t.state.bookedBal - 10) < 1e-9, '空闲时间不得扣血')
-  // 任务进行中：每 60 秒结算一拍，两拍把 1 元吐完
+  t.applyBalance(9, false)   // 掉 1 元
+  assert.ok(Math.abs(t.drawnBalance() - 9) < 1e-9, '板面直接显示实时余额 9.00（不做逐步动画）')
+  assert.ok(Math.abs(t.state.pending - 1) < 1e-9, '累计消耗统计到 1 元')
+  // 空闲：只累计不播，pending 不被消耗
+  let ms = 0
+  for (let k = 0; k < 40; k++) { ms += 100; t.frame(ms) }
+  assert.ok(Math.abs(t.state.pending - 1) < 1e-9, '空闲时间不消耗 pending（不播扣血）')
+  // 任务进行中：每 0.2s 一拍把 pending 按步长吐掉
   t.state.taskBusy = true
-  let ms = 2000
-  // dt 每帧最多 0.1s → 两拍（120s）需要 1300 帧
-  for (let i = 0; i < 1300; i++) { ms += 100; t.frame(ms) }
-  assert.ok(Math.abs(t.state.bookedBal - 9) < 1e-9, '任务中按 60s 节流后应结算到 9.00')
+  for (let k = 0; k < 120; k++) { ms += 100; t.frame(ms) }
+  assert.ok(t.state.pending < 1e-9, '任务进行中 pending 应按步长结算完')
   assert.equal(t.state.usage, null, '今日已用功能已移除')
   t.stop()
 }
 
-// ①b 自定义扣费步长：0.01–100 元，夹取越界值
+// ①b 自定义步长：pending 按步长分拍消耗
 {
   const t = fixture()
   t.applyBalance(10, false)
   t.state.stepYuan = 2
   assert.equal(t.stepValue(), 2)
-  t.applyBalance(3, false)          // 掉 7 元 → 待扣 7
+  t.applyBalance(3, false)   // 掉 7 元
+  assert.ok(Math.abs(t.drawnBalance() - 3) < 1e-9, '板面实时显示 3.00')
   t.state.taskBusy = true
-  let ms2 = 0
-  // 7 元 / 2 元步长 = 4 拍 → 240s → 约 2500 帧
-  for (let i = 0; i < 2600; i++) { ms2 += 100; t.frame(ms2) }
-  assert.ok(Math.abs(t.state.bookedBal - 3) < 1e-9, '按 2 元步长也要结算到 3.00')
+  let ms = 0
+  for (let k = 0; k < 200; k++) { ms += 100; t.frame(ms) }
+  assert.ok(Math.abs(t.state.pending - 1) < 1e-9, '7 元按 2 元步长只吐 3 拍，剩 1 元（不足步长不播）')
   t.state.stepYuan = 0
   assert.equal(t.stepValue(), 0.5, '非法步长回落 0.5')
   t.stop()
@@ -164,8 +164,9 @@ function fixture(saved = {}) {
   assert.equal(t.stepToScale(1), t.SCALE_MIN)
   assert.equal(t.DROP_INTERVAL_DEFAULT_S, 60)
   assert.equal(t.state.dropIntervalSec, 60)
-  const timer = t.timers.find((x) => x.ms === 60000)
-  assert.ok(timer, '必须有 60000ms 的掉盆定时器')
+  // POLL_MS 与掉盆间隔现在同为 60000，按 ms 找会撞到轮询定时器 → 直接驱动 dropTick
+  assert.ok(t.timers.some((x) => x.ms === 60000), '必须有 60000ms 的定时器（轮询/掉盆）')
+  const timer = { fn: function () { t.dropTick() } }
   t.applyBalance(10, false)
   t.applyBalance(13, false) // 充值 3 元
   assert.equal(t.state.bowls.filter((b) => !b.iron).length, 0, '充值不再立刻掉盆')
@@ -182,7 +183,7 @@ function fixture(saved = {}) {
   // 自定义间隔：改完立即重建定时器，越界值被夹回
   t.setDropInterval(5)
   assert.equal(t.state.dropIntervalSec, 5)
-  assert.ok(t.timers.some((x) => x.ms === 5000), '改间隔后要重建为 5000ms 定时器')
+  assert.ok(t.timers.filter((x) => x.ms === 5000).length >= 1, '改间隔后要重建为 5000ms 定时器')
   t.setDropInterval(99999)
   assert.equal(t.state.dropIntervalSec, t.DROP_INTERVAL_MAX_S, '越界夹到上限')
   t.setDropInterval(1)

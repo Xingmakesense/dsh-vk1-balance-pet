@@ -7,6 +7,15 @@
 以 [YCTS-otree/VK-1](https://github.com/YCTS-otree/VK-1) 的 `dsh-plugin` 为基线改造而来，
 **尺寸、位置与菜单形态照搬 [dsh-whale-widget](https://github.com/MeteorNOX/DeepSeek-Balance-Whale-Widget)**。
 
+## v2.6.2 的变化（相对 v2.6.1）
+
+| 项 | v2.6.2 |
+| --- | --- |
+| 小黑板 | 显示**实时余额**（state.real），不再逐拍延迟 |
+| 余额轮询 | 60s，与 dsh-whale-widget 的 REFRESH_MS 一致 |
+| last-turn 轮询 | 1s，与 whale 一致 |
+| 扣血音效 | 必须同时满足「累计消耗 ≥ 步长」与「任务进行中」 |
+
 ## v2.6.1 的变化（相对 v2.6.0）
 
 | 项 | v2.6.1 |

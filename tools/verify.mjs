@@ -174,6 +174,17 @@ for (const bad of ['/dsh-vk1/balance.json', '/dsh-vk1/defaults.json', '/dsh-vk1/
   for (const f of ['duck_press.mp3', 'orb.wav', 'expression_11.png', 'task_end.wav', 'bubble_money.gif', 'skin_dsniang1.png']) assert.ok(files.includes(f), '资源缺 ' + f)
 }
 
+// ⑤c 客户端契约（静态）：单击走随机句池、轮询 60s、结算受 busy 与步长双条件约束
+{
+  const src = fs.readFileSync(path.join(root, 'widget.js'), 'utf8')
+  assert.ok(src.includes("showBubble(pickIdleWord(), false, 'idle')"), '单击必须冒随机句（不是提醒词）')
+  assert.ok(src.indexOf('var POLL_MS = 60000') >= 0, '余额轮询应与 dsh-whale-widget 一致（60s）')
+  assert.ok(src.indexOf('setInterval(pollTurn, 1000)') >= 0, 'last-turn 轮询应与 whale 一致（1s）')
+  assert.ok(src.indexOf('state.taskBusy && state.dueGap <= 0 && state.pending >= stepValue()') >= 0,
+    '扣血播放必须同时满足「任务进行中」与「累计消耗 ≥ 步长」')
+  assert.ok(src.indexOf('function drawnBalance() {') >= 0 && src.indexOf("if (!isFinite(state.real)) return NaN") >= 0, '板面必须显示实时余额 state.real')
+}
+
 // ⑥ 响应头安全：不带 CORS 通配
 {
   const res = fakeRes()

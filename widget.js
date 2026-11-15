@@ -247,8 +247,6 @@
   }
   var CUE_GAP = 0.2
   var MAX_CUES_PER_POLL = 10
-  // 扣血节流：任务进行中每 60 秒按步长结算一次（空闲时间不结算）
-  var STEP_INTERVAL_SEC = 60
   // 饭盆掉落：默认每 60 秒随机掉一盆（菜单里可自定义 5–3600 秒），
   // 位置在角色左上方、2 倍角色身高处。
   var DROP_INTERVAL_DEFAULT_S = 60
@@ -257,7 +255,7 @@
   var DROP_DISTANCE_RATIO = 2
   var HIT_DUR = 0.55
   var FLOAT_DUR = 1.05
-  var POLL_MS = 2000
+  var POLL_MS = 60000   // 与 dsh-whale-widget 的 REFRESH_MS 一致（60s）
   var FLASH_COLOR = '#ff3022'
   var CUE_FILL = 'rgb(255,72,60)'
   var CUE_EDGE = 'rgb(92,8,8)'
@@ -563,7 +561,6 @@
     skin: 'vk1',
     clickSoundOn: true,
     taskBusy: false,      // 宿主下发的「任务是否进行中」
-    stepClock: 0,         // 距上次扣血结算的秒数
     autoIronOnFeed: true,
     idleBubbleOn: true,
     idleWords: [],
@@ -586,9 +583,10 @@
   function headYLocal() { return state.size * 0.36 }
   function headScreen() { return { x: state.left + headXLocal(), y: state.top + headYLocal() } }
   function floaterStep() { return Math.max(18, 34 * scaleOf() * 1.7) }
+  // 板面显示**实时余额**（state.real）：不再做「一分钱一分钱跳」的延迟显示。
   function drawnBalance() {
-    if (!isFinite(state.bookedBal)) return NaN
-    return Math.round((state.bookedBal < 0 ? 0 : state.bookedBal) * 100) / 100
+    if (!isFinite(state.real)) return NaN
+    return Math.round((state.real < 0 ? 0 : state.real) * 100) / 100
   }
 
   // ------------------------------------------------------- layout / screen ---
@@ -1736,23 +1734,18 @@
     var dt = Math.min(0.1, (now - last) / 1000)
     last = now
 
-    // ---- settlement: the only place the printed number moves ----
+    // ---- settlement ----
+    // 板面数字是**实时余额**；这里只负责「什么时候播扣血音效/动画」。
+    // 触发条件（用户要求）：**累计消耗 ≥ 步长** 且 **任务正在进行中**（state.taskBusy）。
+    // 两者缺一不播：空余时间不触发，也不会因为刷新一次就把一串提示连播出去。
     if (state.dueGap > 0) state.dueGap -= dt
-    var take = 0
-    // 扣血结算节流：**只在任务进行中**、且距上次结算 ≥ 60 秒，才按步长吐一拍。
-    // 回合结束后的空余时间（taskBusy=false）不触发；pending 继续攒着，下一轮再结算。
-    if (state.taskBusy) state.stepClock += dt
-    if (state.taskBusy && state.stepClock >= STEP_INTERVAL_SEC && state.dueGap <= 0 && state.pendingStep <= 0) {
-      if (state.pending >= stepValue() - 1e-9) take = stepValue()
-      else if (state.pending > 1e-9) take = Math.round(state.pending * 100) / 100
-      if (take > 0) state.stepClock = 0
-    }
-    if (take > 0) {
-      state.pending = round4(state.pending - take)
+    if (state.taskBusy && state.dueGap <= 0 && state.pending >= stepValue() - 1e-9) {
+      var tickAmount = stepValue()
+      state.pending = round4(state.pending - tickAmount)
       if (state.pending < 1e-9) state.pending = 0
-      state.bookedAt = round4(state.bookedAt - take)
-      state.bookedBal = round4(state.bookedBal - take)
-      state.pendingStep = take
+      state.bookedAt = round4(state.bookedAt - tickAmount)
+      state.bookedBal = round4(state.bookedBal - tickAmount)
+      state.pendingStep = tickAmount
       state.dueGap = CUE_GAP
     }
     if (state.pendingStep > 0) { makeTick(state.pendingStep, false); state.pendingStep = 0; updateScreen() }
@@ -3564,7 +3557,7 @@
   rafId = requestAnimationFrame(frame)
   poll(false)
   var pollTimer = setInterval(function () { poll(false) }, POLL_MS)
-  var turnTimer = setInterval(pollTurn, 2500)
+  var turnTimer = setInterval(pollTurn, 1000)   // 与 whale 的 last-turn 轮询一致（1s）
   var dropTimer = 0
   function restartDropTimer() {
     try { clearInterval(dropTimer) } catch (err) {}
