@@ -734,7 +734,8 @@
   var bubbleChannel = ''    // 当前正在显示的是哪条通道
   var BUBBLE_DUR = 3.2
   var idleCoolDown = 18 + Math.random() * 20   // 自动冒词的冷却（秒），首条也要等一会儿
-  function showBubble(text, force, channel) {
+  // gif: 'petpet' | 'money' | '' —— 队列条目自带装饰动图类型（空 = 纯文字）
+  function showBubble(text, force, channel, gif) {
     var t = String(text == null ? '' : text).trim()
     if (!t) return
     if (!force && !state.bubbleOn) return
@@ -743,7 +744,7 @@
     var q = ch === 'idle' ? idleQueue : bubbleQueue
     if (bubbleText === t && bubbleChannel === ch && bubbleShownT < BUBBLE_DUR * 0.6) return
     if (q.length >= 3) q.shift()
-    q.push(t)
+    q.push({ text: t, gif: gif || '' })
   }
   // 统一的「气泡贴边」算法：
   //   贴左吸附 → 气泡左缘对齐角色左缘；贴右吸附 → 右缘对齐角色右缘；自由摆放 → 居中。
@@ -799,14 +800,17 @@
     var nextQueue = bubbleQueue.length ? bubbleQueue : (idleQueue.length ? idleQueue : null)
     var nextChannel = bubbleQueue.length ? 'cost' : 'idle'
     if (!bubbleText && nextQueue) {
-      bubbleText = nextQueue.shift()
+      var item = nextQueue.shift()
+      // 兼容老调用（偶尔塞纯字符串进来）
+      if (typeof item === 'string') item = { text: item, gif: '' }
+      bubbleText = item.text
       bubbleChannel = nextChannel
       bubbleShownT = 0
       bubbleTextEl.textContent = bubbleText
-      // 装饰动图只在「自动冒词」通道出现：消耗/余额句一律纯文字，避免图文混杂。
-      var wantGif = state.bubbleGifOn !== false && bubbleChannel === 'idle'
+      // 动图按条目类型选：idle 冒词 → petpet；充值入账 → money；其它纯文字
+      var wantGif = state.bubbleGifOn !== false && !!item.gif
       if (wantGif) {
-        var gif = BASE + '/bubble_petpet.gif'
+        var gif = BASE + (item.gif === 'money' ? '/bubble_money.gif' : '/bubble_petpet.gif')
         if (bubbleGifEl.getAttribute('src') !== gif) bubbleGifEl.setAttribute('src', gif)
         bubbleGifEl.classList.add('dshvk1-gif-on')
       } else {
@@ -821,7 +825,7 @@
     if (!bubbleText && state.idleBubbleOn !== false) {
       idleCoolDown -= dt
       if (idleCoolDown <= 0) {
-        showBubble(pickIdleWord(), false, 'idle')
+        showBubble(pickIdleWord(), false, 'idle', 'petpet')
         armIdleBubble()
       }
     }
@@ -1109,6 +1113,8 @@
   function startCredit(amount, demo) {
     if (!isFinite(amount) || amount <= 0) return
     if (demo) { spawnRiceBowl(0, true); return }
+    // 充值提示：气泡里弹一条「充值 +¥x.xx」，配金钱动图（演示不弹）
+    showBubble('充值 +¥' + fmt2(amount), false, 'cost', 'money')
     state.creditPending = round4(state.creditPending + amount)
     if (!state.fxBowl) {
       applyCredit(amount)
@@ -2459,7 +2465,7 @@
       // 单击冒的是**随机句子**（与自动冒词同一个池），不是提醒词模板。
       // 仍然只在没有别的气泡显示/排队时开口，避免顶掉本轮消耗提示。
       if (state.bubbleOn && !bubbleText && !bubbleQueue.length && !idleQueue.length) {
-        showBubble(pickIdleWord(), false, 'idle')
+        showBubble(pickIdleWord(), false, 'idle', 'petpet')
       }
       poll(false)
       return

@@ -93,6 +93,7 @@ function fixture(saved = {}) {
     isHit, onDocClick, swallowNextClick, SOUND_PACKS, showBubble, pickReminder, tickBubble, SKINS, skinOf, applySkin, playPool, CUE_SOUND_GAP_MS, setCueSource, pickIdleWord,
     getCuePools() { return cuePools },
     bubbleTextNow() { return bubbleText },
+    getBubbleQueue() { return bubbleQueue },
     placeBubble, IRON_STACK_MAX, trimIronStack, HEAD_SQUASH_DUR,
     ready() { hitReady = true },
     stepValue, STEP_DEFAULT, STEP_MIN, STEP_MAX,
@@ -527,4 +528,30 @@ function fixture(saved = {}) {
   t.stop()
 }
 
-console.log('behavior: WIDGET OK — 23 groups')
+// ㉔ 充值：气泡里弹「充值 +¥x」，带 money 动图；演示不弹
+{
+  const t = fixture()
+  t.state.bubbleOn = true
+  t.applyBalance(10, false)
+  t.applyBalance(13, false)          // 真实充值 3 元
+  // 队列条目带 gif 类型
+  const q = t.getBubbleQueue()
+  assert.equal(q.length, 1, '充值应入队一条气泡')
+  assert.ok(q[0].text.indexOf('充值 +') === 0, '文案应为「充值 +¥x」：' + q[0].text)
+  assert.equal(q[0].gif, 'money', '充值气泡应带 money 动图')
+  // 出队后 gif 生效
+  t.tickBubble(0.05)
+  assert.equal(t.bubbleTextNow(), q[0] ? q[0].text : t.bubbleTextNow())
+  t.stop()
+}
+
+// ㉕ 演示充值不弹气泡
+{
+  const t = fixture()
+  t.state.bubbleOn = true
+  t.startCredit(3, true)
+  assert.equal(t.getBubbleQueue().length, 0, '演示充值不得弹气泡')
+  t.stop()
+}
+
+console.log('behavior: WIDGET OK — 25 groups')

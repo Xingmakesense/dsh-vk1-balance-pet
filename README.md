@@ -7,6 +7,13 @@
 以 [YCTS-otree/VK-1](https://github.com/YCTS-otree/VK-1) 的 `dsh-plugin` 为基线改造而来，
 **尺寸、位置与菜单形态照搬 [dsh-whale-widget](https://github.com/MeteorNOX/DeepSeek-Balance-Whale-Widget)**。
 
+## v2.6.6 的变化（相对 v2.6.5）
+
+| 项 | v2.6.6 |
+| --- | --- |
+| 充值气泡 | 真实充值时弹「充值 +¥x.xx」+ 金钱动图 `bubble_money.gif` |
+| 气泡队列 | 条目改为 `{ text, gif }`：idle→petpet、money→money、空→纯文字 |
+
 ## v2.6.5 的变化（相对 v2.6.4）
 
 | 项 | v2.6.5 |
