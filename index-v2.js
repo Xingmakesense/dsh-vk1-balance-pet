@@ -152,9 +152,14 @@ function apply(root) {
     }
 
     let turnAggs = new Map()   // sessionId -> { turn, cost, tokens, lastTs }
+    // 任务是否在跑：任一会话收到 assistant/message 就置忙，turn/end 后置闲。
+    // （用户要的就是「只有任务进行中才按步长扣血，空闲时间不触发」）
+    let busySessions = new Set()
+    let lastBusyTs = 0
     let lastTurn = null
     let lastTurnSeq = 0
     function finalizeTurn(sessionId) {
+      busySessions.delete(String(sessionId || ''))
       const agg = turnAggs.get(sessionId)
       if (agg && (agg.cost > 0 || agg.tokens > 0)) {
         lastTurn = { turn: agg.turn, amount: agg.cost, tokens: agg.tokens, ts: agg.lastTs }
@@ -169,6 +174,9 @@ function apply(root) {
         if (!d || typeof d !== 'object') return
         if (type === 'turn/end') { finalizeTurn(sessionId); return }
         if (type !== 'assistant/message') return
+        // 任何一步 assistant 输出都算「任务进行中」
+        busySessions.add(String(sessionId || ''))
+        lastBusyTs = Date.now()
         const turn = Number(d.turn)
         const usage = d.usage
         if (!usage || !isFinite(turn)) return
@@ -437,9 +445,11 @@ function apply(root) {
       kind: 'exact',
       path: NS + '/last-turn.json',
       handler: (req, res) => {
+        // busy = 有会话正在跑（或最近 15 秒内有输出，避免两轮之间的空隙把状态抖成闲置）
+        const busy = busySessions.size > 0 || (Date.now() - lastBusyTs < 15000)
         const payload = lastTurn
-          ? { ok: true, seq: lastTurnSeq, turn: lastTurn.turn, amount: lastTurn.amount, tokens: lastTurn.tokens, ts: lastTurn.ts }
-          : { ok: true, seq: 0, amount: 0, tokens: 0, ts: 0 }
+          ? { ok: true, seq: lastTurnSeq, turn: lastTurn.turn, amount: lastTurn.amount, tokens: lastTurn.tokens, ts: lastTurn.ts, busy }
+          : { ok: true, seq: 0, amount: 0, tokens: 0, ts: 0, busy }
         res.writeHead(200, JSON_HEADERS)
         res.end(JSON.stringify(payload))
       },

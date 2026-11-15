@@ -90,7 +90,7 @@ function fixture(saved = {}) {
     updateBowls, makeTick, frame, snapBounds, snapZones, settle, saveAnchor, applyAnchorPos,
     applySize, setScale, stepToScale, scaleToStep, baseSizePx, setDropInterval, restartDropTimer, CLICK_JUMP_DUR,
     updateRadar, buildMenu, openMenu, closeMenu,
-    isHit, onDocClick, swallowNextClick, SOUND_PACKS, showBubble, pickReminder, tickBubble, SKINS, skinOf, applySkin, playPool, CUE_SOUND_GAP_MS, setCueSource,
+    isHit, onDocClick, swallowNextClick, SOUND_PACKS, showBubble, pickReminder, tickBubble, SKINS, skinOf, applySkin, playPool, CUE_SOUND_GAP_MS, setCueSource, pickIdleWord,
     getCuePools() { return cuePools },
     bubbleTextNow() { return bubbleText },
     placeBubble, IRON_STACK_MAX, trimIronStack, HEAD_SQUASH_DUR,
@@ -105,15 +105,22 @@ function fixture(saved = {}) {
   return { ...ctx.test, storage, timers, docEvents, winEvents }
 }
 
-// ① 扣费步进 = 0.5 元
+// ① 扣费步进 = 0.5 元；结算只在任务进行中、每 60s 一拍
 {
   const t = fixture()
   assert.equal(t.stepValue(), 0.5, '默认扣费步长 0.5 元')
   t.applyBalance(10, false)
   t.applyBalance(9, false) // 掉了 1 元 → 两个 0.5 步
   assert.ok(Math.abs(t.state.pending - 1) < 1e-9, '统计到 1 元待扣')
-  for (let ms = 1; ms < 3000; ms += 50) t.frame(ms)
-  assert.ok(Math.abs(t.state.bookedBal - 9) < 1e-9, '最终结算到 9.00')
+  // 空闲（taskBusy=false）时一帧都不结算
+  for (let ms = 1; ms < 2000; ms += 50) t.frame(ms)
+  assert.ok(Math.abs(t.state.bookedBal - 10) < 1e-9, '空闲时间不得扣血')
+  // 任务进行中：每 60 秒结算一拍，两拍把 1 元吐完
+  t.state.taskBusy = true
+  let ms = 2000
+  // dt 每帧最多 0.1s → 两拍（120s）需要 1300 帧
+  for (let i = 0; i < 1300; i++) { ms += 100; t.frame(ms) }
+  assert.ok(Math.abs(t.state.bookedBal - 9) < 1e-9, '任务中按 60s 节流后应结算到 9.00')
   assert.equal(t.state.usage, null, '今日已用功能已移除')
   t.stop()
 }
@@ -125,7 +132,10 @@ function fixture(saved = {}) {
   t.state.stepYuan = 2
   assert.equal(t.stepValue(), 2)
   t.applyBalance(3, false)          // 掉 7 元 → 待扣 7
-  for (let ms = 1; ms < 6000; ms += 50) t.frame(ms)
+  t.state.taskBusy = true
+  let ms2 = 0
+  // 7 元 / 2 元步长 = 4 拍 → 240s → 约 2500 帧
+  for (let i = 0; i < 2600; i++) { ms2 += 100; t.frame(ms2) }
   assert.ok(Math.abs(t.state.bookedBal - 3) < 1e-9, '按 2 元步长也要结算到 3.00')
   t.state.stepYuan = 0
   assert.equal(t.stepValue(), 0.5, '非法步长回落 0.5')
@@ -438,4 +448,29 @@ function fixture(saved = {}) {
   t.stop()
 }
 
-console.log('behavior: WIDGET OK — 19 groups')
+// ⑳ 单击只冒随机句（不出提醒词模板）；stale 回包不触发掉盆
+{
+  const t = fixture()
+  t.state.bubbleOn = true
+  t.state.idleBubbleOn = true
+  // 提醒词里有 {cost} 占位，随机句里没有 —— 用它区分两条来源
+  t.state.reminders = ['提醒词占位{cost}']
+  t.state.idleWords = ['随机句子A']
+  // 直接检查 pickIdleWord 返回的是随机池
+  assert.equal(t.pickIdleWord(), '随机句子A')
+  t.stop()
+}
+
+// ㉑ stale 回包绝不当作充值（旧版扣血时会凭空掉一盆）
+{
+  const t = fixture()
+  t.applyBalance(10, false)
+  t.applyBalance(9, false)              // 扣 1 元
+  const before = t.state.bowls.length
+  t.applyBalance(10, false, true)       // stale：宿主返回更早、更高的缓存
+  assert.equal(t.state.bowls.length, before, 'stale 回包不得掉盆')
+  assert.equal(t.state.creditPending, 0, 'stale 回包不得记待入账')
+  t.stop()
+}
+
+console.log('behavior: WIDGET OK — 21 groups')

@@ -7,6 +7,14 @@
 以 [YCTS-otree/VK-1](https://github.com/YCTS-otree/VK-1) 的 `dsh-plugin` 为基线改造而来，
 **尺寸、位置与菜单形态照搬 [dsh-whale-widget](https://github.com/MeteorNOX/DeepSeek-Balance-Whale-Widget)**。
 
+## v2.6.1 的变化（相对 v2.6.0）
+
+| 项 | v2.6.1 |
+| --- | --- |
+| 单击气泡 | 改为随机句子（与自动冒词同池），不再用提醒词模板 |
+| 扣血掉落饭盆 | stale 缓存回包不再被当成充值（这是「扣血时掉盆」的根因）；涨幅阈值提到 1 分 |
+| 扣血节奏 | 仅任务进行中、每 60 秒按步长结算一拍；空闲不触发 |
+
 ## v2.6.0 的变化（相对 v2.5.0）
 
 | 项 | v2.6.0 |

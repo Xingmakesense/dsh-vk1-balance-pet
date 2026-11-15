@@ -162,6 +162,7 @@ for (const bad of ['/dsh-vk1/balance.json', '/dsh-vk1/defaults.json', '/dsh-vk1/
   assert.equal(payload.ok, true)
   assert.equal(typeof payload.seq, 'number')
   assert.equal(typeof payload.amount, 'number')
+  assert.equal(typeof payload.busy, 'boolean', 'last-turn 必须带 busy（任务是否进行中）')
 
   const rres = fakeRes()
   await routes.get('/dsh-vk1-balance-pet/resources.json').handler({}, rres)

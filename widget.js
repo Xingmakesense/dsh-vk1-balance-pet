@@ -246,7 +246,9 @@
     return isFinite(v) && v >= STEP_MIN ? Math.round(v * 100) / 100 : STEP_DEFAULT
   }
   var CUE_GAP = 0.2
-  var MAX_CUES_PER_POLL = 40
+  var MAX_CUES_PER_POLL = 10
+  // 扣血节流：任务进行中每 60 秒按步长结算一次（空闲时间不结算）
+  var STEP_INTERVAL_SEC = 60
   // 饭盆掉落：默认每 60 秒随机掉一盆（菜单里可自定义 5–3600 秒），
   // 位置在角色左上方、2 倍角色身高处。
   var DROP_INTERVAL_DEFAULT_S = 60
@@ -560,6 +562,8 @@
     soundPack: 'default',
     skin: 'vk1',
     clickSoundOn: true,
+    taskBusy: false,      // 宿主下发的「任务是否进行中」
+    stepClock: 0,         // 距上次扣血结算的秒数
     autoIronOnFeed: true,
     idleBubbleOn: true,
     idleWords: [],
@@ -1553,7 +1557,7 @@
   }
 
   // ------------------------------------------------------- balance reading ---
-  function applyBalance(bal, snap) {
+  function applyBalance(bal, snap, stale) {
     if (!isFinite(bal)) return
     // 抖动保护：与上次读数几乎相同就当作没变，避免同一笔消费被反复结算（音效连响的来源之一）
     if (!snap && isFinite(state.real) && Math.abs(bal - state.real) < 1e-6) { state.connected = true; return }
@@ -1576,10 +1580,11 @@
       state.bowls.filter(function (b) { return !b.iron }).forEach(function (b) { detach(b.el) })
       state.bowls = state.bowls.filter(function (b) { return b.iron })
     } else if (!first) {
-      if (bal > prev + 1e-9) {
-        // A top-up must NOT move the readout: it drops a bowl for you to collect.
+      // 充值判定：**stale 回包不计入**（扣费期间宿主短时失败会返回更早、更高的缓存读数，
+      // 旧实现直接当充值 → 掉一盆饭，这就是「扣血音效响起时会掉盆」的根因）；涨幅至少 1 分。
+      if (!stale && bal > prev + 0.009) {
         startCredit(round4(bal - prev))
-      } else {
+      } else if (bal < prev - 0.009 || stale) {
         var owed = round4(state.bookedAt - bal)
         if (owed < -1e-9) {
           owed = state.pending
@@ -1658,7 +1663,8 @@
         if (stopped) return
         if (d && d.ok && d.totalBalance != null && isFinite(Number(d.totalBalance))) {
           if (d.version) state.hostVersion = String(d.version)
-          applyBalance(Number(d.totalBalance), !!snap)
+          // stale = 宿主给的旧缓存（比当前可能更高）→ 绝不能当成「充值」，否则会凭空掉一盆
+          applyBalance(Number(d.totalBalance), !!snap, !!d.stale)
         }
         else { state.connected = false; updateScreen() }
       })
@@ -1733,9 +1739,13 @@
     // ---- settlement: the only place the printed number moves ----
     if (state.dueGap > 0) state.dueGap -= dt
     var take = 0
-    if (state.dueGap <= 0 && state.pendingStep <= 0) {
+    // 扣血结算节流：**只在任务进行中**、且距上次结算 ≥ 60 秒，才按步长吐一拍。
+    // 回合结束后的空余时间（taskBusy=false）不触发；pending 继续攒着，下一轮再结算。
+    if (state.taskBusy) state.stepClock += dt
+    if (state.taskBusy && state.stepClock >= STEP_INTERVAL_SEC && state.dueGap <= 0 && state.pendingStep <= 0) {
       if (state.pending >= stepValue() - 1e-9) take = stepValue()
       else if (state.pending > 1e-9) take = Math.round(state.pending * 100) / 100
+      if (take > 0) state.stepClock = 0
     }
     if (take > 0) {
       state.pending = round4(state.pending - take)
@@ -2370,9 +2380,10 @@
       // ⚠️ 这里不能用 poll(true)：snap 会清空场上没喂的饭盆（旧版单击就把它们重置了）。
       state.clickJumpT = 0
       if (state.clickSoundOn !== false) playPool(clickPool)
-      // 只有「没有别的气泡在显示 / 排队」时才插一句，避免挤掉本轮消耗提示。
-      if (state.bubbleOn && !bubbleText && !bubbleQueue.length) {
-        showBubble(pickReminder('') || ('\u00A5' + (isFinite(drawnBalance()) ? fmt2(drawnBalance()) : '--')))
+      // 单击冒的是**随机句子**（与自动冒词同一个池），不是提醒词模板。
+      // 仍然只在没有别的气泡显示/排队时开口，避免顶掉本轮消耗提示。
+      if (state.bubbleOn && !bubbleText && !bubbleQueue.length && !idleQueue.length) {
+        showBubble(pickIdleWord(), false, 'idle')
       }
       poll(false)
       return
