@@ -86,7 +86,7 @@ function fixture(saved = {}) {
   })
   ctx.window = ctx
   const hook = `window.test = {
-    state, pat, applyBalance, drawnBalance, startCredit, spawnRiceBowl, dropTick, dropPoint, onRiceFed, newBowl,
+    state, pat, applyBalance, drawnBalance, STEP_INTERVAL_SEC, startCredit, spawnRiceBowl, dropTick, dropPoint, onRiceFed, newBowl,
     updateBowls, makeTick, frame, snapBounds, snapZones, settle, saveAnchor, applyAnchorPos,
     applySize, setScale, stepToScale, scaleToStep, baseSizePx, setDropInterval, restartDropTimer, CLICK_JUMP_DUR,
     updateRadar, buildMenu, openMenu, closeMenu,
@@ -119,8 +119,9 @@ function fixture(saved = {}) {
   assert.ok(Math.abs(t.state.pending - 1) < 1e-9, '空闲时间不消耗 pending（不播扣血）')
   // 任务进行中：每 0.2s 一拍把 pending 按步长吐掉
   t.state.taskBusy = true
-  for (let k = 0; k < 120; k++) { ms += 100; t.frame(ms) }
-  assert.ok(t.state.pending < 1e-9, '任务进行中 pending 应按步长结算完')
+  // 第 ③ 个条件：距上次提示满 60s（dt 每帧最多 0.1s）→ 两拍约 1200 帧
+  for (let k = 0; k < 1400; k++) { ms += 100; t.frame(ms) }
+  assert.ok(t.state.pending < 1e-9, '三条件都满足时 pending 应按步长结算完')
   assert.equal(t.state.usage, null, '今日已用功能已移除')
   t.stop()
 }
@@ -135,10 +136,29 @@ function fixture(saved = {}) {
   assert.ok(Math.abs(t.drawnBalance() - 3) < 1e-9, '板面实时显示 3.00')
   t.state.taskBusy = true
   let ms = 0
-  for (let k = 0; k < 200; k++) { ms += 100; t.frame(ms) }
+  // 3 拍 × 60s ≈ 180s → 约 1900 帧
+  for (let k = 0; k < 1900; k++) { ms += 100; t.frame(ms) }
   assert.ok(Math.abs(t.state.pending - 1) < 1e-9, '7 元按 2 元步长只吐 3 拍，剩 1 元（不足步长不播）')
   t.state.stepYuan = 0
   assert.equal(t.stepValue(), 0.5, '非法步长回落 0.5')
+  t.stop()
+}
+
+// ①c 时间条件：两次提示之间必须满 60 秒
+{
+  const t = fixture()
+  t.applyBalance(10, false)
+  t.applyBalance(9, false)          // 掉 1 元 → pending 1
+  t.state.taskBusy = true
+  assert.equal(t.state.stepClock, t.STEP_INTERVAL_SEC, '初值=满，首次可立即播')
+  let ms = 0
+  for (let k = 0; k < 30; k++) { ms += 100; t.frame(ms) }   // 约 3 秒
+  assert.ok(t.state.pending < 0.6, '第一拍应已播出（pending 减少）')
+  const afterFirst = t.state.pending
+  t.applyBalance(8.5, false)        // 又掉 0.5
+  for (let k = 0; k < 100; k++) { ms += 100; t.frame(ms) }  // 再过 10 秒
+  assert.ok(t.state.stepClock < t.STEP_INTERVAL_SEC, '刚播过 → 计时未满')
+  assert.ok(t.state.pending > afterFirst - 1e-6, '未满 60 秒不得再播第二拍')
   t.stop()
 }
 

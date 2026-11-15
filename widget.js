@@ -246,6 +246,8 @@
     return isFinite(v) && v >= STEP_MIN ? Math.round(v * 100) / 100 : STEP_DEFAULT
   }
   var CUE_GAP = 0.2
+  // 第三个条件：两次扣血提示之间至少间隔 60 秒
+  var STEP_INTERVAL_SEC = 60
   var MAX_CUES_PER_POLL = 10
   // 饭盆掉落：默认每 60 秒随机掉一盆（菜单里可自定义 5–3600 秒），
   // 位置在角色左上方、2 倍角色身高处。
@@ -561,6 +563,7 @@
     skin: 'vk1',
     clickSoundOn: true,
     taskBusy: false,      // 宿主下发的「任务是否进行中」
+    stepClock: STEP_INTERVAL_SEC,   // 距上次扣血提示的秒数（初值=满，首次扣费立即可播）
     autoIronOnFeed: true,
     idleBubbleOn: true,
     idleWords: [],
@@ -569,7 +572,6 @@
     bubbleGifOn: true,
     reminders: ["\u672C\u8F6E \u00A5{cost}", "\u8FD9\u4E00\u8F6E\u82B1\u4E86 \u00A5{cost}\uFF0C\u5979\u5F88\u5F00\u5FC3", "\u5E10\u5355\u62A5\u544A\uFF1A\u00A5{cost}"],
     lastTurnSeq: 0,
-    turnCost: 0,
     theme: 'auto',
     cueVolumes: [100, 100, 100, 100, 100, 100],
     usage: null,
@@ -676,9 +678,14 @@
     }
     var v = drawnBalance()
     var text = isFinite(v) ? ('\u00A5' + v.toFixed(2)) : '\u00A5--'
-    if (balanceBubbleEl.textContent !== text) balanceBubbleEl.textContent = text
-    balanceBubbleEl.style.display = 'block'
+    var textChanged = balanceBubbleEl.textContent !== text
+    if (textChanged) balanceBubbleEl.textContent = text
+    if (balanceBubbleEl.style.display !== 'block') balanceBubbleEl.style.display = 'block'
+    // 等价优化：文字与角色位置都没变时，跳过整块定位（省掉一次 offsetWidth 读）
+    var placeKey = state.left + ':' + state.top + ':' + state.size + ':' + state.h
+    if (!textChanged && balanceBubbleEl.__vk1PlacedAt === placeKey) return
     placeBubble(balanceBubbleEl, 0)
+    balanceBubbleEl.__vk1PlacedAt = placeKey
   }
   // 两条通道：cost = 消耗/余额提示；idle = 自动冒词。互不覆盖，cost 优先。
   var bubbleQueue = []      // cost 通道
@@ -1641,7 +1648,6 @@
         if (seq === state.lastTurnSeq) return
         state.lastTurnSeq = seq
         var amount = Number(d.amount) || 0
-        state.turnCost = amount
         if (state.turnEndOn !== false) playPool(endPool)               // 任务结束音（第 5 槽）
         var costText = fmt2(amount)
         var line = pickReminder(costText)
@@ -1735,18 +1741,22 @@
     last = now
 
     // ---- settlement ----
-    // 板面数字是**实时余额**；这里只负责「什么时候播扣血音效/动画」。
-    // 触发条件（用户要求）：**累计消耗 ≥ 步长** 且 **任务正在进行中**（state.taskBusy）。
-    // 两者缺一不播：空余时间不触发，也不会因为刷新一次就把一串提示连播出去。
+    // 板面数字是**实时余额**；这里只决定「什么时候播扣血动画/音效」。
+    // 三个条件必须**同时满足**：
+    //   ① 聊天窗口正在执行任务（state.taskBusy）
+    //   ② 累计消耗 ≥ 扣费步长（pending ≥ stepValue()）
+    //   ③ 距上次提示已满 60 秒（stepClock ≥ STEP_INTERVAL_SEC）
     if (state.dueGap > 0) state.dueGap -= dt
-    if (state.taskBusy && state.dueGap <= 0 && state.pending >= stepValue() - 1e-9) {
-      var tickAmount = stepValue()
-      state.pending = round4(state.pending - tickAmount)
+    if (state.taskBusy) state.stepClock += dt
+    var stepNow = stepValue()
+    if (state.taskBusy && state.stepClock >= STEP_INTERVAL_SEC && state.dueGap <= 0 && state.pending >= stepNow - 1e-9) {
+      state.pending = round4(state.pending - stepNow)
       if (state.pending < 1e-9) state.pending = 0
-      state.bookedAt = round4(state.bookedAt - tickAmount)
-      state.bookedBal = round4(state.bookedBal - tickAmount)
-      state.pendingStep = tickAmount
+      state.bookedAt = round4(state.bookedAt - stepNow)
+      state.bookedBal = round4(state.bookedBal - stepNow)
+      state.pendingStep = stepNow
       state.dueGap = CUE_GAP
+      state.stepClock = 0
     }
     if (state.pendingStep > 0) { makeTick(state.pendingStep, false); state.pendingStep = 0; updateScreen() }
     if (state.demoLeft > 0 && state.pendingStep <= 0 && state.dueGap <= 0) {
@@ -3225,7 +3235,7 @@
       ta.value = state.reminders.join('\n')
       ta.rows = 5
       ta.placeholder = '\u4E00\u884C\u4E00\u53E5\uFF1B{cost} \u4F1A\u88AB\u672C\u8F6E\u91D1\u989D\u66FF\u6362'
-      var saveReminders = action(content, '\u4FDD\u5B58\u63D0\u9192\u8BCD', function () {
+      action(content, '\u4FDD\u5B58\u63D0\u9192\u8BCD', function () {
         var lines = String(ta.value || '').split('\n').map(function (x) { return x.trim().slice(0, 60) }).filter(Boolean).slice(0, 20)
         state.reminders = lines.length ? lines : ['\u672C\u8F6E \u00A5{cost}']
         saveOptions()

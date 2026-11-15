@@ -1,5 +1,23 @@
 # Changelog
 
+## v2.6.3 - 2026-11-15
+
+### Changed
+- **扣血动画/音效改为三条件同时满足**：
+  ① 聊天窗口正在执行任务（`state.taskBusy`）；
+  ② 累计消耗 ≥ 扣费步长（`pending ≥ stepValue()`）；
+  ③ 距上次提示已满 **60 秒**（`stepClock ≥ STEP_INTERVAL_SEC`，初值=满，首次可立即播）。
+  任何一条不满足都不播，也不消耗 pending。
+
+### Performance
+- **等价替换，不动接口/资源/路径**：
+  · `placeBubble()` 缓存上次写入的 `transform/left/top`，值没变不再写样式（原来每帧无条件写，触发样式重算）；
+  · 常驻余额气泡在「文字没变 + 角色位置没变」时直接短路，省掉每帧一次 `offsetWidth` 读取（会强制布局）；
+  · 结算里 `stepValue()` 只取一次（原来同一次判断里取两次）。
+
+### Removed
+- 冗余：写而不读的 `state.turnCost`（及其赋值）、未使用的 `saveReminders` 绑定。
+
 ## v2.6.2 - 2026-11-15
 
 ### Changed

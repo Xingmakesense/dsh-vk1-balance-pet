@@ -180,8 +180,8 @@ for (const bad of ['/dsh-vk1/balance.json', '/dsh-vk1/defaults.json', '/dsh-vk1/
   assert.ok(src.includes("showBubble(pickIdleWord(), false, 'idle')"), '单击必须冒随机句（不是提醒词）')
   assert.ok(src.indexOf('var POLL_MS = 60000') >= 0, '余额轮询应与 dsh-whale-widget 一致（60s）')
   assert.ok(src.indexOf('setInterval(pollTurn, 1000)') >= 0, 'last-turn 轮询应与 whale 一致（1s）')
-  assert.ok(src.indexOf('state.taskBusy && state.dueGap <= 0 && state.pending >= stepValue()') >= 0,
-    '扣血播放必须同时满足「任务进行中」与「累计消耗 ≥ 步长」')
+  assert.ok(src.indexOf('state.taskBusy && state.stepClock >= STEP_INTERVAL_SEC') >= 0,
+    '扣血播放必须同时满足「任务进行中」「累计消耗 ≥ 步长」「距上次 ≥ 60s」')
   assert.ok(src.indexOf('function drawnBalance() {') >= 0 && src.indexOf("if (!isFinite(state.real)) return NaN") >= 0, '板面必须显示实时余额 state.real')
 }
 

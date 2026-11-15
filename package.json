@@ -1,6 +1,6 @@
 {
   "name": "dsh-vk1-balance-pet",
-  "version": "2.6.2",
+  "version": "2.6.3",
   "private": true,
   "description": "DSH 网页余额桌宠（大肥鱼）：演示页修复、气泡纵向布局与常驻余额气泡、铁盆堆叠 30 上限、独立命名空间；余额走官方账号凭据。",
   "type": "module",

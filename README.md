@@ -7,6 +7,14 @@
 以 [YCTS-otree/VK-1](https://github.com/YCTS-otree/VK-1) 的 `dsh-plugin` 为基线改造而来，
 **尺寸、位置与菜单形态照搬 [dsh-whale-widget](https://github.com/MeteorNOX/DeepSeek-Balance-Whale-Widget)**。
 
+## v2.6.3 的变化（相对 v2.6.2）
+
+| 项 | v2.6.3 |
+| --- | --- |
+| 扣血触发 | 三条件同时满足：任务进行中 + 累计消耗 ≥ 步长 + 距上次 ≥ 60 秒 |
+| 性能 | 等价替换：气泡定位缓存、常驻气泡短路、stepValue 只取一次 |
+| 冗余 | 删 `state.turnCost`、未使用的 `saveReminders` |
+
 ## v2.6.2 的变化（相对 v2.6.1）
 
 | 项 | v2.6.2 |
