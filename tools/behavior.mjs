@@ -90,9 +90,10 @@ function fixture(saved = {}) {
     updateBowls, makeTick, frame, snapBounds, snapZones, settle, saveAnchor, applyAnchorPos,
     applySize, setScale, stepToScale, scaleToStep, baseSizePx, setDropInterval, restartDropTimer, CLICK_JUMP_DUR,
     updateRadar, buildMenu, openMenu, closeMenu,
-    isHit, onDocClick, swallowNextClick, applySoundPack, SOUND_PACKS, showBubble, pickReminder, tickBubble, SKINS, skinOf, applySkin, playPool, CUE_SOUND_GAP_MS,
+    isHit, onDocClick, swallowNextClick, SOUND_PACKS, showBubble, pickReminder, tickBubble, SKINS, skinOf, applySkin, playPool, CUE_SOUND_GAP_MS, setCueSource,
     getCuePools() { return cuePools },
     bubbleTextNow() { return bubbleText },
+    placeBubble, IRON_STACK_MAX, trimIronStack, HEAD_SQUASH_DUR,
     ready() { hitReady = true },
     stepValue, STEP_DEFAULT, STEP_MIN, STEP_MAX,
     DROP_INTERVAL_DEFAULT_S, DROP_INTERVAL_MIN_S, DROP_INTERVAL_MAX_S, SCALE_MIN, SCALE_MAX, SCALE_STEPS,
@@ -295,20 +296,16 @@ function fixture(saved = {}) {
   t.stop()
 }
 
-// ⑩ 音效包切换：切到 duck / orb 后四路音效池的源必须跟着换
+// ⑩ 单个音效选源：给某槽换源后，该槽的音效池必须换（其余槽保持默认）
 {
   const t = fixture()
-  assert.equal(t.state.soundPack, 'default')
-  const src = () => (t.getCuePools()[0].pool[0] || {}).src || ''
-  t.applySoundPack('duck')
-  assert.equal(t.state.soundPack, 'duck')
-  assert.ok(src().includes('duck_press.mp3'), 'duck 包应使用 duck_press.mp3，实际 ' + src())
-  t.applySoundPack('orb')
-  assert.ok(src().includes('orb.wav'), 'orb 包应使用 orb.wav，实际 ' + src())
-  t.applySoundPack('default')
-  assert.ok(src().includes('hit.mp3'), 'default 包应回到 hit.mp3')
-  t.applySoundPack('nope')
-  assert.equal(t.state.soundPack, 'default', '未知音效包回落到 default')
+  const src = (i) => (t.getCuePools()[i].pool[0] || {}).src || ''
+  assert.ok(src(0).includes('hit.mp3'), '默认掉血音是 hit.mp3，实际 ' + src(0))
+  t.setCueSource(0, '/dsh-vk1-balance-pet/duck_press.mp3')
+  assert.ok(src(0).includes('duck_press.mp3'), '换源后掉血音应为 duck_press.mp3，实际 ' + src(0))
+  assert.ok(src(1).includes('feed.mp3'), '未改的回血槽仍用默认音')
+  t.setCueSource(0, '')
+  assert.ok(src(0).includes('hit.mp3'), '清空后回到默认音')
   t.stop()
 }
 
@@ -400,4 +397,45 @@ function fixture(saved = {}) {
   t.stop()
 }
 
-console.log('behavior: WIDGET OK — 17 groups')
+// ⑱ 气泡贴边：左吸附不越左界、右吸附不越右界
+{
+  const t = fixture()
+  t.state.size = 100
+  t.state.h = 'left'
+  t.state.left = 0
+  t.state.top = 400
+  const el = { style: {}, offsetWidth: 200 }
+  t.placeBubble(el, 0)
+  assert.ok(parseInt(el.style.left, 10) >= 0, '左吸附时气泡左缘不得为负：' + el.style.left)
+  t.state.h = 'right'
+  t.state.left = 1100
+  const el2 = { style: {}, offsetWidth: 200 }
+  t.placeBubble(el2, 0)
+  const left2 = parseInt(el2.style.left, 10)
+  assert.ok(left2 - 200 >= -1, '右吸附时气泡左缘（含宽度）不得超出视口：' + left2)
+  assert.ok(left2 <= 1200, '右吸附时锚点不得超出视口：' + left2)
+  t.stop()
+}
+
+// ⑲ 铁盆堆叠上限 30；扣头不再触发头顶挤压（Q 弹）
+{
+  const t = fixture()
+  assert.equal(t.IRON_STACK_MAX, 30)
+  t.applyBalance(10, false)
+  // 造 35 个铁盆并全戴上
+  for (let i = 0; i < 35; i++) {
+    t.spawnRiceBowl(0, false)
+    const bowl = t.state.bowls[t.state.bowls.length - 1]
+    t.onRiceFed(bowl)
+  }
+  const onHead = t.state.bowls.filter(function (b) { return b.iron && b.onHead && b.fadeT <= 0 }).length
+  assert.ok(onHead <= 30, '戴在头上的铁盆不得超过 30，实际 ' + onHead)
+  // 扣头不应把 headSquashT 归零（那会立刻触发一次挤压/Q 弹）
+  t.state.headSquashT = t.HEAD_SQUASH_DUR
+  t.spawnRiceBowl(0, false)
+  t.onRiceFed(t.state.bowls[t.state.bowls.length - 1])
+  assert.equal(t.state.headSquashT, t.HEAD_SQUASH_DUR, '铁盆扣头不再触发 Q 弹')
+  t.stop()
+}
+
+console.log('behavior: WIDGET OK — 19 groups')

@@ -342,6 +342,7 @@
     // sets no z-index at all (auto), so any positive value wins — and above this
     // plugin's own character, because upstream paints the bowls AFTER the sprite.
     // overflow:hidden keeps the above-the-viewport spawn from scrolling the page.
+    // 气泡/徽章层：压在角色与铁盆之上（铁盆在 root 里，z 只有 10+idx）
     '.dshvk1-stage{position:fixed;left:0;top:0;width:100vw;height:100vh;pointer-events:none;z-index:10001;overflow:hidden}',
     // transform-origin:0 0 is load-bearing. renderBowls() emits the FULL transform
     // chain itself, in upstream's order (translate -> rotate -> scale -> anchor
@@ -351,15 +352,17 @@
     '.dshvk1-bowl{position:absolute;left:0;top:0;pointer-events:none;will-change:transform;transform-origin:0 0}',
     '.dshvk1-heart{position:absolute;left:0;top:0;pointer-events:none;will-change:transform,opacity}',
     // 气泡：左图右文，两栏都是独立盒；文字块 min-width:0 才不会把图片挤没
-    '.dshvk1-bubble{display:flex;align-items:flex-start;gap:6px;position:absolute;transform:translate(-50%,-100%);' +
+    // 气泡：**纵向**两行 —— 第一行动图、第二行文字。横向并排会让长句绕到图下面，
+    // 视觉上就是「文字和 GIF 混在一起」。
+    '.dshvk1-bubble{display:flex;flex-direction:column;align-items:center;gap:3px;position:absolute;transform:translate(-50%,-100%);' +
       'max-width:min(280px,64vw);padding:5px 9px;border-radius:9px;box-sizing:border-box;' +
       'background:rgba(20,28,46,.92);color:#eaf1ff;font:12px/1.45 system-ui,sans-serif;border:1px solid rgba(158,182,224,.45);' +
-      'box-shadow:0 4px 14px rgba(0,0,0,.32);pointer-events:none;z-index:10005}',
+      'box-shadow:0 4px 14px rgba(0,0,0,.32);pointer-events:none;z-index:10006}',
     // 立绘缺失时的兜底：藏掉表情层，给角色区域一块圆角底板 + 面板底色
     '.dshvk1-root.dshvk1-art-missing .dshvk1-face{display:none!important}',
     '.dshvk1-root.dshvk1-art-missing .dshvk1-body{background:rgba(26,33,50,.92);border:1px solid rgba(120,140,180,.5);border-radius:14px}',
     '.dshvk1-root.dshvk1-art-missing .dshvk1-panel{background:linear-gradient(180deg,rgba(18,23,36,.96),rgba(10,14,24,.96));border-radius:8px;padding:4% 3%;box-sizing:border-box}',
-    '.dshvk1-bubbletext{flex:1 1 auto;min-width:0;white-space:pre-wrap;overflow-wrap:anywhere;word-break:break-word}',
+    '.dshvk1-bubbletext{flex:0 0 auto;max-width:100%;white-space:pre-wrap;overflow-wrap:anywhere;word-break:break-word;text-align:center}',
     '.dshvk1-radar{position:absolute;left:0;top:0;width:100%;height:100%;pointer-events:none;overflow:visible}',
     '.dshvk1-root{position:fixed;left:0;top:0;width:var(--dshvk1-s);height:var(--dshvk1-s);pointer-events:none;user-select:none;-webkit-user-select:none;z-index:9998;font-family:inherit;transition:left .16s ease,top .16s ease}',
     '.dshvk1-root.dshvk1-dragging{transition:none;cursor:grabbing}',
@@ -658,6 +661,23 @@
   bubbleGifEl.addEventListener('error', function () { bubbleGifEl.classList.remove('dshvk1-gif-on') })
   bubbleEl.appendChild(bubbleGifEl)
   stage.appendChild(bubbleEl)
+
+  // 常驻余额气泡：非「控制台原生」皮肤用它显示余额（不占 cost/idle 队列，也不会被临时提示顶掉）
+  var balanceBubbleEl = document.createElement('div')
+  balanceBubbleEl.className = 'dshvk1-balancebubble'
+  balanceBubbleEl.style.display = 'none'
+  stage.appendChild(balanceBubbleEl)
+  function updateBalanceBubble() {
+    if (!boardlessBalance() || state.bubbleOn === false) {
+      balanceBubbleEl.style.display = 'none'
+      return
+    }
+    var v = drawnBalance()
+    var text = isFinite(v) ? ('\u00A5' + v.toFixed(2)) : '\u00A5--'
+    if (balanceBubbleEl.textContent !== text) balanceBubbleEl.textContent = text
+    balanceBubbleEl.style.display = 'block'
+    placeBubble(balanceBubbleEl, 0)
+  }
   // 两条通道：cost = 消耗/余额提示；idle = 自动冒词。互不覆盖，cost 优先。
   var bubbleQueue = []      // cost 通道
   var idleQueue = []        // idle 通道
@@ -677,6 +697,30 @@
     if (q.length >= 3) q.shift()
     q.push(t)
   }
+  // 统一的「气泡贴边」算法：
+  //   贴左吸附 → 气泡左缘对齐角色左缘；贴右吸附 → 右缘对齐角色右缘；自由摆放 → 居中。
+  //   竖直方向再留 offsetY 的余量，避免和别的气泡/铁盆压在一起。
+  function placeBubble(el, offsetY) {
+    if (!el) return
+    var w = el.offsetWidth || 120
+    var vw = viewport().w
+    var cx = state.left + state.size / 2
+    var anchor = "center"
+    var left = cx
+    if (state.h === "left") { anchor = "left"; left = state.left }
+    else if (state.h === "right") { anchor = "right"; left = state.left + state.size }
+    // 换算成「以 left 为基准」的 CSS：用 translateX 百分比做锚点
+    var tx = anchor === "left" ? "-0%" : (anchor === "right" ? "-100%" : "-50%")
+    el.style.transform = "translate(" + tx + ", -100%)"
+    // 夹进视口：左/右锚点也不会被屏幕边裁掉
+    var half = anchor === "center" ? w / 2 : (anchor === "right" ? w : 0)
+    var minLeft = half + 2
+    var maxLeft = vw - (anchor === "left" ? 0 : (w - half)) - 2
+    var x = Math.min(Math.max(left, minLeft), Math.max(minLeft, maxLeft))
+    el.style.left = Math.round(x) + "px"
+    el.style.top = Math.round(Math.max(2, state.top - 6 - (offsetY || 0))) + "px"
+  }
+
   function tickBubble(dt) {
     if (bubbleText) {
       bubbleShownT += dt
@@ -701,6 +745,9 @@
       }
       bubbleEl.style.display = 'block'
     }
+    // 常驻余额气泡：每帧跟随角色位置（换皮肤 / 拖动 / 吸附后都不会脱节）
+    updateBalanceBubble()
+
     // 自动冒词：等气泡空出来再开口
     if (!bubbleText && state.idleBubbleOn !== false) {
       idleCoolDown -= dt
@@ -710,10 +757,8 @@
       }
     }
     if (!bubbleText) return
-    var cx = state.left + state.size / 2
-    var top = Math.max(2, state.top - 6)
-    bubbleEl.style.left = Math.round(cx) + 'px'
-    bubbleEl.style.top = Math.round(top) + 'px'
+    bubbleEl.style.display = 'block'
+    placeBubble(bubbleEl, 22)
     var fade = bubbleShownT > BUBBLE_DUR - 0.5 ? Math.max(0, (BUBBLE_DUR - bubbleShownT) / 0.5) : 1
     bubbleEl.style.opacity = String(fade)
   }
@@ -808,12 +853,6 @@
     cuePools = [hitPool, feedPool, landPool, offPool, endPool, clickPool]
     state.cueSrc = srcs.map(function (x, i) { return (cueSrcs && cueSrcs[i]) || '' })
     return srcs
-  }
-  // 兼容旧调用：切换「默认音效池」（用户自定义过源时保留自定义）
-  function applySoundPack(packId) {
-    state.soundPack = SOUND_PACKS[packId] ? packId : 'default'
-    rebuildPools(state.cueSrc || null)
-    saveOptions()
   }
   // 给单个槽换源（src='' 表示回到默认）
   function setCueSource(cue, src) {
@@ -1120,6 +1159,21 @@
 
   function ironAnchorX() { return state.left + state.size * (mirrored() ? (1 - 0.5558) : 0.5558) }
   var wornSequence = 0
+  // 铁盆堆叠上限：超过就把最上面（最早戴上的）那个取下来，避免无限堆到屏幕外
+  var IRON_STACK_MAX = 30
+  function trimIronStack() {
+    var worn = []
+    for (var i = 0; i < state.bowls.length; i++) {
+      var b = state.bowls[i]
+      if (b.iron && b.onHead && b.fadeT <= 0) worn.push(b)
+    }
+    if (worn.length <= IRON_STACK_MAX) return
+    worn.sort(function (a, b) { return a.wornOrder - b.wornOrder })
+    while (worn.length > IRON_STACK_MAX) {
+      var old = worn.shift()
+      old.fadeT = 0.001
+    }
+  }
   function ironStackIndex(p) {
     var index = 0
     for (var i = 0; i < state.bowls.length; i++) {
@@ -1169,8 +1223,10 @@
     p.R = worn.w * 0.42
     p.el.style.width = worn.w + 'px'
     p.el.style.height = worn.h + 'px'
-    state.headSquashT = 0
+    // 铁盆扣头不再播 Q 弹（头顶挤压动画关掉，只保留音效与落位）
+    state.headSquashT = HEAD_SQUASH_DUR
     playPool(landPool)
+    trimIronStack()
   }
 
   function knockPotOff() {
@@ -1455,6 +1511,7 @@
     root.classList.toggle('dshvk1-board-badge', skin.board === 'badge')
     hitSrc = ''
     updateHitSource()
+    updateBalanceBubble()
     layout()
     saveOptions()
   }
@@ -1543,10 +1600,9 @@
   var lastScreenText = null
   var lastConnected = null
   function boardlessBalance() {
-    // 除了「控制台原生」（手里有黑板），其余皮肤都把余额放进自动冒出/触发的气泡里
+    // 只有「控制台原生」把余额画在手持黑板上；其余皮肤（蓝发女仆 / 自定义立绘）用常驻气泡显示
     return skinOf(state.skin).board !== 'sprite'
   }
-  var lastBoardlessPush = 0
   function updateScreen() {
     var v = drawnBalance()
     var text = isFinite(v) ? v.toFixed(2) : '--'
@@ -1554,14 +1610,8 @@
     if (text !== lastScreenText) {
       lastScreenText = text
       numEl.textContent = text
-      // 没黑板的皮肤：余额变化时经 cost 通道冒一条气泡（1.5s 内不重复）
-      if (boardlessBalance() && isFinite(v)) {
-        var nowMs2 = Date.now()
-        if (nowMs2 - lastBoardlessPush > 1500) {
-          lastBoardlessPush = nowMs2
-          showBubble('¥' + text, false, 'cost')
-        }
-      }
+      // 没黑板的皮肤：余额走「常驻气泡」（独立元素，不占 cost 队列），见 updateBalanceBubble()
+      updateBalanceBubble()
       // 面板宽 520 CSS px、高约 0.7×520；数字要占可见宽度的一部分：
       // 短数字用 0.46ph，长到 7 位就收到 0.30ph，保证 ¥ + 数字 + 边距不越界。
       var fs = Math.min(0.46, 2.2 / Math.max(3, text.length))
@@ -2729,6 +2779,10 @@
     '.dshvk1-num{width:74px;padding:2px 5px;background:var(--vk-card);border:1px solid var(--vk-border);border-radius:5px;font-size:12px;text-align:right}',
     '.dshvk1-range{width:130px;max-width:46vw;accent-color:var(--vk-accent)}',
     '.dshvk1-actions{display:flex;flex-wrap:wrap;gap:5px;margin:6px 0}',
+    '.dshvk1-balancebubble{position:absolute;transform:translate(-50%,-100%);padding:3px 8px;border-radius:8px;' +
+      'background:rgba(20,28,46,.9);color:#eaf1ff;font:12px/1.3 system-ui,sans-serif;' +
+      'border:1px solid rgba(158,182,224,.45);box-shadow:0 3px 10px rgba(0,0,0,.3);' +
+      'pointer-events:none;white-space:nowrap;z-index:10007}',
     '.dshvk1-bubblegif{width:22px;height:22px;object-fit:contain;flex:0 0 auto;border-radius:4px;margin-top:1px;display:none}',
     '.dshvk1-bubblegif.dshvk1-gif-on{display:block}',
     '.dshvk1-snapwrap{margin:6px 0 2px}',
@@ -3144,6 +3198,18 @@
         action(volRow, '\u8BD5\u542C', function () { playPool(cuePools[i]) })
       })
       hint('\u603B\u97F3\u91CF\u4E0E\u5206\u9879\u97F3\u91CF\u76F8\u4E58\uFF1B\u81EA\u5B9A\u4E49\u97F3\u9891\u5728\u300C\u97F3\u6548\u5E93\u300D\u3002')
+    } else if (settingsPage === 'demo') {
+      hint('\u53EA\u64AD\u52A8\u753B\uFF08\u7EA2\u95EA / \u9707\u52A8 / \u98D8\u5B57 / \u97F3\u6548 / \u6389\u76C6\uFF09\uFF0C\u4E0D\u6539\u5E73\u677F\u6570\u5B57\uFF0C\u4E5F\u4E0D\u8BA1\u5165\u4ECA\u65E5\u6D88\u8D39\u3002')
+      var demoActions = element('div', null, content, 'dshvk1-actions')
+      action(demoActions, '\u5355\u6B21\u6263\u8D39', function () { makeTick(stepValue(), true) })
+      action(demoActions, '\u5341\u6B21\u6263\u8D39', function () { state.demoAmount = stepValue(); state.demoLeft = 10 })
+      var demoCount = 10, demoAmount = 3
+      row('\u81EA\u5B9A\u4E49\u6263\u8D39\u6B21\u6570', numberBox(demoCount, 1, 10000, 1, function (v) { demoCount = v }))
+      action(content, '\u6F14\u793A\u81EA\u5B9A\u4E49\u6263\u8D39', function () { state.demoAmount = stepValue(); state.demoLeft = demoCount })
+      row('\u5145\u503C\u91D1\u989D\uFF08\u5143\uFF09', numberBox(demoAmount, 0.01, 1000000, 0.01, function (v) { demoAmount = v }))
+      var demoCredit = element('div', null, content, 'dshvk1-actions')
+      action(demoCredit, '\u6A21\u62DF\u5145\u503C 3 \u5143', function () { startCredit(3, true); closeSettingsPanel() })
+      action(demoCredit, '\u6F14\u793A\u81EA\u5B9A\u4E49\u5145\u503C', function () { startCredit(demoAmount, true); closeSettingsPanel() })
     } else if (settingsPage === 'bubble') {
       section('\u6C14\u6CE1')
       row('\u663E\u793A\u6C14\u6CE1', checkbox(state.bubbleOn, function (v) { state.bubbleOn = v; saveOptions() }))

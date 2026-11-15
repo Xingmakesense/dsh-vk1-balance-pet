@@ -1,7 +1,6 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import os from 'node:os'
-const require$os = os
 import { fileURLToPath } from 'node:url'
 
 // ============================================================================
@@ -388,8 +387,11 @@ function apply(root) {
     // 默认配置：客户端把「当前生效的设置」POST 上来，落盘 defaults.json；
     // 新装（或清了 localStorage）时 GET 拿回这份作为初始值。
     const DEFAULTS_FILE = path.join(process.env.DSH_HOME || path.join(os.homedir(), '.dsh'), 'storages', 'dsh-vk1-balance-pet', 'defaults.json')
+    // 随包的出厂默认（与插件同版本分发）；用户点过「存为默认」后被 DEFAULTS_FILE 覆盖
+    const SHIPPED_DEFAULTS = path.join(PACKAGE_ROOT, 'defaults.json')
     function readDefaults() {
-      try { return JSON.parse(fs.readFileSync(DEFAULTS_FILE, 'utf8')) } catch (err) { return null }
+      try { return JSON.parse(fs.readFileSync(DEFAULTS_FILE, 'utf8')) } catch (err) {}
+      try { return JSON.parse(fs.readFileSync(SHIPPED_DEFAULTS, 'utf8')) } catch (err) { return null }
     }
     function writeDefaults(body) {
       try {

@@ -1,0 +1,22 @@
+{
+  "fxBowl": true,
+  "fxPat": true,
+  "fxHurt": true,
+  "theme": "auto",
+  "cueVolumes": [100, 100, 100, 100, 100, 100],
+  "radarOn": true,
+  "dropIntervalSec": 60,
+  "soundPack": "default",
+  "stepYuan": 0.5,
+  "bubbleOn": true,
+  "reminders": ["本轮 ¥{cost}", "这一轮花了 ¥{cost}", "账单报告：¥{cost}"],
+  "turnEndOn": true,
+  "bubbleGifOn": true,
+  "clickSoundOn": true,
+  "cueSrc": [],
+  "skin": "vk1",
+  "autoIronOnFeed": true,
+  "idleBubbleOn": true,
+  "idleWords": [],
+  "rotateFlip": false
+}
