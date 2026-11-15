@@ -108,6 +108,27 @@
       quad: [549.6, 706.2, 949.7, 642.0, 984.7, 860.2, 584.6, 924.3],
       board: 'sprite',
     },
+    // 预制立绘：两张 610×610 方图，没有手持平版 → 走 badge（余额显示在上方气泡）
+    creeper: {
+      id: 'creeper',
+      name: '苦力怕',
+      faces: {
+        happy: BASE + '/skin_creeper.png', nervous: BASE + '/skin_creeper.png',
+        aloof: BASE + '/skin_creeper.png', calm: BASE + '/skin_creeper.png',
+      },
+      quad: [512, 760, 960, 700, 990, 900, 560, 950],
+      board: 'badge',
+    },
+    linux: {
+      id: 'linux',
+      name: 'Linux',
+      faces: {
+        happy: BASE + '/skin_linux.png', nervous: BASE + '/skin_linux.png',
+        aloof: BASE + '/skin_linux.png', calm: BASE + '/skin_linux.png',
+      },
+      quad: [512, 760, 960, 700, 990, 900, 560, 950],
+      board: 'badge',
+    },
     dsniang: {
       id: 'dsniang',
       name: '\u84DD\u53D1\u5973\u4EC6',
@@ -357,7 +378,8 @@
     // 气泡：**纵向**两行 —— 第一行动图、第二行文字。横向并排会让长句绕到图下面，
     // 视觉上就是「文字和 GIF 混在一起」。
     '.dshvk1-bubble{display:flex;flex-direction:column;align-items:center;gap:3px;position:absolute;transform:translate(-50%,-100%);' +
-      'max-width:min(280px,64vw);padding:5px 9px;border-radius:9px;box-sizing:border-box;' +
+      // width:max-content：宽度只由内容决定，不受 left 位置挤压（否则贴右时会折成竖排）
+      'width:max-content;max-width:min(280px,64vw);padding:5px 9px;border-radius:9px;box-sizing:border-box;' +
       'background:rgba(20,28,46,.92);color:#eaf1ff;font:12px/1.45 system-ui,sans-serif;border:1px solid rgba(158,182,224,.45);' +
       'box-shadow:0 4px 14px rgba(0,0,0,.32);pointer-events:auto;cursor:pointer;z-index:10006}',
     // 立绘缺失时的兜底：藏掉表情层，给角色区域一块圆角底板 + 面板底色
@@ -2844,13 +2866,10 @@
     '.dshvk1-num{width:74px;padding:2px 5px;background:var(--vk-card);border:1px solid var(--vk-border);border-radius:5px;font-size:12px;text-align:right}',
     '.dshvk1-range{width:130px;max-width:46vw;accent-color:var(--vk-accent)}',
     '.dshvk1-actions{display:flex;flex-wrap:wrap;gap:5px;margin:6px 0}',
-    '.dshvk1-balancebubble{position:absolute;transform:translate(-50%,-100%);padding:4px 9px;border-radius:8px;' +
+    '.dshvk1-balancebubble{position:absolute;transform:translate(-50%,-100%);width:max-content;max-width:min(320px,70vw);padding:4px 9px;border-radius:8px;' +
       'background:rgba(20,28,46,.9);color:#eaf1ff;font:12px/1.35 system-ui,sans-serif;' +
       'border:1px solid rgba(158,182,224,.45);box-shadow:0 3px 10px rgba(0,0,0,.3);' +
       'pointer-events:auto;cursor:pointer;white-space:nowrap;z-index:10007}',
-      'background:rgba(20,28,46,.9);color:#eaf1ff;font:12px/1.3 system-ui,sans-serif;' +
-      'border:1px solid rgba(158,182,224,.45);box-shadow:0 3px 10px rgba(0,0,0,.3);' +
-      'pointer-events:none;white-space:nowrap;z-index:10007}',
     '.dshvk1-bubblegif{width:22px;height:22px;object-fit:contain;flex:0 0 auto;border-radius:4px;margin-top:1px;display:none}',
     '.dshvk1-bubblegif.dshvk1-gif-on{display:block}',
     '.dshvk1-snapwrap{margin:6px 0 2px}',

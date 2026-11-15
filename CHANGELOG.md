@@ -1,5 +1,20 @@
 # Changelog
 
+## v2.6.5 - 2026-11-15
+
+### Added
+- **预制立绘扩到 4 套**：`控制台原生` / `苦力怕` / `Linux` / `蓝发女仆`。
+  后两套原本只是本机 `whale-roles` 里下载的图片，现在直接随包分发、在「形象与功能」里一键切换，不用再手动上传。
+
+### Fixed
+- **右对齐时上方气泡变成竖版**：绝对定位元素的可用宽度 = 包含块宽 − `left`；贴右边时 `left≈视口宽`，
+  可用宽度趋近 0，shrink-to-fit 就把中文按一列折行。给 `.dshvk1-bubble` / `.dshvk1-balancebubble` 加
+  `width:max-content`，宽度只由内容决定，**对齐与夹取逻辑一行未改**。实测左右两侧都是 108×26。
+- 顺手删掉一段没有选择器的残缺 CSS（`balancebubble` 上方的重复声明片段）。
+
+### Notes
+- `苦力怕` / `Linux` 两张立绘来自本机 `~/.dsh/whale-roles` 的图片文件，已在 `asset-sources.json` 注明来源。
+
 ## v2.6.4 - 2026-11-15
 
 ### Fixed

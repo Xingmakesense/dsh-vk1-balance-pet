@@ -7,6 +7,13 @@
 以 [YCTS-otree/VK-1](https://github.com/YCTS-otree/VK-1) 的 `dsh-plugin` 为基线改造而来，
 **尺寸、位置与菜单形态照搬 [dsh-whale-widget](https://github.com/MeteorNOX/DeepSeek-Balance-Whale-Widget)**。
 
+## v2.6.5 的变化（相对 v2.6.4）
+
+| 项 | v2.6.5 |
+| --- | --- |
+| 预制立绘 | 4 套：控制台原生 / 苦力怕 / Linux / 蓝发女仆（一键切换，无需上传） |
+| 右对齐气泡 | 修复变竖版：`width:max-content`，宽度不再被 `left` 挤压；对齐逻辑不变 |
+
 ## v2.6.4 的变化（相对 v2.6.3）
 
 | 项 | v2.6.4 |

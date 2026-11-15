@@ -256,6 +256,30 @@
       "processing": "Original upstream bytes, no processing.",
       "width": 610,
       "height": 610
+    },
+    {
+      "file": "skin_creeper.png",
+      "source": "dsh-whale-widget 用户角色图（whale-roles）",
+      "sourceSha256": null,
+      "sha256": "6e1359e918cc832d2fbfc7d16f32c9eaba00611da9d2cd8c8e6950b937c8d9b1",
+      "bytes": 36594,
+      "mime": "image/png",
+      "note": "预设立绘：苦力怕（610×610）",
+      "processing": "Original bytes, no processing.",
+      "width": 610,
+      "height": 610
+    },
+    {
+      "file": "skin_linux.png",
+      "source": "dsh-whale-widget 用户角色图（whale-roles）",
+      "sourceSha256": null,
+      "sha256": "446fe78c91c075dcb72e38f4833aac493ca03235e5a5cc032b486761b27d837a",
+      "bytes": 257037,
+      "mime": "image/png",
+      "note": "预设立绘：Linux Tux（610×610）",
+      "processing": "Original bytes, no processing.",
+      "width": 610,
+      "height": 610
     }
   ]
 }

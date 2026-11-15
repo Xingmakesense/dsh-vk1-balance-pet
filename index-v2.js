@@ -91,6 +91,8 @@ const RESOURCES = {
   'bubble_petpet.gif': ['bubble_petpet.gif', 'image/gif'],
   'bubble_money.gif': ['bubble_money.gif', 'image/gif'],
   'skin_dsniang1.png': ['skin_dsniang1.png', 'image/png'],
+  'skin_creeper.png': ['skin_creeper.png', 'image/png'],
+  'skin_linux.png': ['skin_linux.png', 'image/png'],
 }
 for (let i = 0; i < 5; i++) RESOURCES['pat_hand_' + i + '.png'] = ['pat_hand_' + i + '.png', 'image/png']
 // 兼容旧变量名（外部只读，不用于注册路由）
