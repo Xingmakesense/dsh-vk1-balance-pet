@@ -1,6 +1,9 @@
 # dsh-vk1-balance-pet —— DSH bundle patch
 #
-# 入口用「锚定在 patch 文件旁的相对路径」，避免包名入口命中 Loader 的旧模块缓存。
+# 入口用「锚定在 patch 文件旁的相对路径」，而不是包名：包名入口会被 Loader 按 URL
+# 缓存，普通 bundle 停/启不会重新导入。换一个从未被 import 过的文件名 = 拿到全新
+# 模块 URL，改宿主代码无需重启 DSH 即可生效。**改宿主代码时把版本号递增**
+# （index-v2.js → index-v3.js），并同步 package.json 的 exports["."] 与 files。
 - insert:
     - id: dsh-vk1-balance-pet
-      name: ./index.js
+      name: ./index-v2.js

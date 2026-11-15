@@ -81,8 +81,13 @@ function fixture(saved = {}) {
   ctx.window = ctx
   const hook = `window.test = {
     state, pat, applyBalance, startCredit, spawnRiceBowl, dropTick, dropPoint, onRiceFed, newBowl,
-    updateBowls, makeTick, frame, snapBounds, snapZones, settle, saveAnchor, applyAnchorPos, setSize,
-    STEP, DROP_INTERVAL_MS, SIZE_PRESETS, snapConfig, saveSnapConfig, loadSnapConfig, refreshFlip, stop
+    updateBowls, makeTick, frame, snapBounds, snapZones, settle, saveAnchor, applyAnchorPos,
+    applySize, setScale, stepToScale, scaleToStep, baseSizePx, setDropInterval, restartDropTimer,
+    updateRadar, buildMenu, openMenu, closeMenu,
+    isHit, onDocClick, swallowNextClick,
+    ready() { hitReady = true },
+    STEP, DROP_INTERVAL_DEFAULT_S, DROP_INTERVAL_MIN_S, DROP_INTERVAL_MAX_S, SCALE_MIN, SCALE_MAX, SCALE_STEPS,
+    snapConfig, saveSnapConfig, loadSnapConfig, refreshFlip, stop
   };`
   vm.runInContext(source.replace(
     '  window.__dshAppearanceWidgets = window.__dshAppearanceWidgets || {}',
@@ -119,10 +124,12 @@ function fixture(saved = {}) {
   t.stop()
 }
 
-// ③ 60 秒周期掉盆：充值不再立刻掉；定时器周期是 60000ms
+// ③ 周期掉盆：充值不再立刻掉；定时器周期来自可自定义的 state.dropIntervalSec
 {
   const t = fixture()
-  assert.equal(t.DROP_INTERVAL_MS, 60000)
+  assert.equal(t.stepToScale(1), t.SCALE_MIN)
+  assert.equal(t.DROP_INTERVAL_DEFAULT_S, 60)
+  assert.equal(t.state.dropIntervalSec, 60)
   const timer = t.timers.find((x) => x.ms === 60000)
   assert.ok(timer, '必须有 60000ms 的掉盆定时器')
   t.applyBalance(10, false)
@@ -137,6 +144,15 @@ function fixture(saved = {}) {
   assert.equal(t.state.bowls.filter((b) => !b.iron).length, 1, '场上已有盆时不再叠加')
   t.onRiceFed(bowls[0])
   assert.ok(Math.abs(t.state.bookedBal - 13) < 1e-9, '喂下去才真正入账')
+
+  // 自定义间隔：改完立即重建定时器，越界值被夹回
+  t.setDropInterval(5)
+  assert.equal(t.state.dropIntervalSec, 5)
+  assert.ok(t.timers.some((x) => x.ms === 5000), '改间隔后要重建为 5000ms 定时器')
+  t.setDropInterval(99999)
+  assert.equal(t.state.dropIntervalSec, t.DROP_INTERVAL_MAX_S, '越界夹到上限')
+  t.setDropInterval(1)
+  assert.equal(t.state.dropIntervalSec, t.DROP_INTERVAL_MIN_S, '越界夹到下限')
   t.stop()
 }
 
@@ -194,17 +210,65 @@ function fixture(saved = {}) {
   t.stop()
 }
 
-// ⑦ 尺寸预设：当前 454 是中杯，三档比例与上游 340:454:624 一致
+// ⑦ 尺寸：连续缩放（1–20 级 → 0.6–2.5），基准 min(250, min(vw,vh)*0.28)
 {
   const t = fixture()
-  const byName = Object.fromEntries(t.SIZE_PRESETS.map((p) => [p.name, p.px]))
-  assert.equal(byName['中杯'], 454, '中杯 = 当前大小 454')
-  assert.equal(byName['小杯'], 340)
-  assert.equal(byName['大杯'], 624)
-  const ratio = (n) => byName[n] / byName['中杯']
-  assert.ok(Math.abs(ratio('小杯') - 340 / 454) < 1e-9)
-  assert.ok(Math.abs(ratio('大杯') - 624 / 454) < 1e-9)
+  assert.equal(t.SCALE_STEPS, 20)
+  assert.equal(t.stepToScale(1), t.SCALE_MIN)
+  assert.equal(t.stepToScale(t.SCALE_STEPS), t.SCALE_MAX)
+  assert.equal(t.scaleToStep(1), 5, 'scale 1.0 对应第 5 级（0.6+4*0.1）')
+  // 视口 1200x800 → 基准 min(250, 800*0.28=224) = 224px；scale=1 → 224px
+  assert.equal(t.baseSizePx(1), 224)
+  assert.equal(t.state.scale, 1)
+  t.setScale(2.5)
+  assert.equal(t.state.size, 560, '2.5 倍 → 560px')
+  t.setScale(0.6)
+  assert.equal(t.state.size, 134, '0.6 倍 → 134px（不低于 122 下限）')
   t.stop()
 }
 
-console.log('behavior: WIDGET OK — 7 groups')
+// ⑧ 火控雷达开关：关掉后不渲染铭牌、不锁定、不磁吸
+{
+  const t = fixture()
+  t.state.radarOn = false
+  t.spawnRiceBowl(0, false)
+  for (let i = 0; i < 300; i++) t.updateRadar(0.05)
+  assert.equal(t.state.lockAll, false, '关闭雷达后不得进入锁定')
+  assert.equal(t.state.bowlWait, 0, '关闭雷达后闲置计时清零')
+  assert.equal(t.state.radarManual, false)
+  t.stop()
+}
+
+// ⑨ 点击穿透：落在角色上的 click 必须被吞，空白处不能吞
+{
+  const t = fixture()
+  t.ready() // 命中画布就绪（stub 的 getImageData 恒为 alpha 255）
+  const rootRect = { left: 0, top: 0, width: 454, height: 454 }
+  function fakeClick(x, y, targetClosest) {
+    const calls = []
+    const ev = {
+      clientX: x, clientY: y,
+      target: { closest: targetClosest || function () { return null } },
+      stopPropagation() { calls.push('stop') },
+      preventDefault() { calls.push('prevent') },
+    }
+    t.onDocClick(ev)
+    return calls
+  }
+  // 角色中心：命中 → 吞
+  assert.ok(t.isHit({ clientX: 227, clientY: 227 }), 'stub 命中画布应判定为命中角色')
+  assert.deepEqual(fakeClick(227, 227), ['stop', 'prevent'], '角色上的 click 必须被吞掉')
+  // 空白处：不吞
+  assert.deepEqual(fakeClick(5000, 5000), [], '空白处的 click 不得被吞')
+  // 菜单 / 设置 / ☰ 按钮：放行
+  assert.deepEqual(fakeClick(227, 227, function (sel) { return sel === '.dshvk1-menu' ? {} : null }), [], '菜单内点击放行')
+  assert.deepEqual(fakeClick(227, 227, function (sel) { return sel === '.dshvk1-dialog' ? {} : null }), [], '设置面板点击放行')
+  assert.deepEqual(fakeClick(227, 227, function (sel) { return sel === '.dshvk1-btn' ? {} : null }), [], '菜单按钮点击放行')
+  // 时间窗兜底：按下时命中过的坐标，即使 click 落在别处也吞一次
+  t.swallowNextClick(400)
+  assert.deepEqual(fakeClick(5000, 5000), ['stop', 'prevent'], '时间窗内的 click 必须被吞')
+  assert.deepEqual(fakeClick(5000, 5000), [], '时间窗用掉后不再吞')
+  t.stop()
+}
+
+console.log('behavior: WIDGET OK — 9 groups')

@@ -1,11 +1,11 @@
 {
   "name": "dsh-vk1-balance-pet",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "private": true,
   "description": "DSH 网页余额桌宠（大肥鱼）：平板显示余额、每 60 秒随机掉饭盆、铁盆堆叠、四表情；余额走官方账号凭据，无 API key 输入。",
   "type": "module",
   "exports": {
-    ".": "./index.js",
+    ".": "./index-v2.js",
     "./package.json": "./package.json"
   },
   "dsh": {
@@ -14,7 +14,7 @@
     }
   },
   "files": [
-    "index.js",
+    "index-v2.js",
     "widget.js",
     "cordis.patch.yml",
     "asset-sources.json",

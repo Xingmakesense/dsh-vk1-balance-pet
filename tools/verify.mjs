@@ -10,11 +10,11 @@ import { spawnSync } from 'node:child_process'
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const pkg = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'))
 assert.match(pkg.version, /^\d+\.\d+\.\d+$/)
-assert.equal(pkg.exports['.'], './index.js')
-assert.ok(fs.readFileSync(path.join(root, 'cordis.patch.yml'), 'utf8').includes('name: ./index.js'))
+assert.equal(pkg.exports['.'], './index-v2.js')
+assert.ok(fs.readFileSync(path.join(root, 'cordis.patch.yml'), 'utf8').includes('name: ./index-v2.js'))
 
 // 语法检查交给 node --check（ESM 才能收 import.meta）
-for (const file of ['index.js', 'widget.js']) {
+for (const file of ['index-v2.js', 'widget.js']) {
   const src = fs.readFileSync(path.join(root, file), 'utf8')
   assert.ok(src.length > 1000, file)
   const tmp = path.join(root, '.syntax-' + file)
@@ -39,9 +39,9 @@ for (const asset of provenance.assets) {
 }
 // 不再分发自更新检查器与多余宿主入口
 assert.equal(fs.existsSync(path.join(root, 'update-checker-v1.js')), false)
-assert.equal(fs.existsSync(path.join(root, 'index-v13.js')), false)
+assert.equal(fs.existsSync(path.join(root, 'index.js')), false)
 
-const mod = await import(pathToFileURL(path.join(root, 'index.js')).href)
+const mod = await import(pathToFileURL(path.join(root, 'index-v2.js')).href)
 assert.equal(mod.name, 'dsh-vk1-balance-pet')
 assert.equal(typeof mod.apply, 'function')
 

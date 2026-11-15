@@ -101,8 +101,11 @@
   var STEP = 0.5
   var CUE_GAP = 0.2
   var MAX_CUES_PER_POLL = 40
-  // 饭盆掉落：每 60 秒随机掉一盆，位置在角色左上方、2 倍角色身高处。
-  var DROP_INTERVAL_MS = 60000
+  // 饭盆掉落：默认每 60 秒随机掉一盆（菜单里可自定义 5–3600 秒），
+  // 位置在角色左上方、2 倍角色身高处。
+  var DROP_INTERVAL_DEFAULT_S = 60
+  var DROP_INTERVAL_MIN_S = 5
+  var DROP_INTERVAL_MAX_S = 3600
   var DROP_DISTANCE_RATIO = 2
   var HIT_DUR = 0.55
   var FLOAT_DUR = 1.05
@@ -120,18 +123,18 @@
   var QX = [549.6, 949.7, 984.7, 584.6]
   var QY = [706.2, 642.0, 860.2, 924.3]
 
-  // 尺寸预设：当前大小（454px，上游「大杯」）现在定为**中杯**，其余两档按上游
-  // 340 : 454 : 624 的同一比例缩放，所以三档的视觉比例与上游桌宠版一致。
-  var SIZE_PRESETS = [
-    { key: 'small', name: '小杯', px: 340 },
-    { key: 'mid', name: '中杯', px: 454 },
-    { key: 'large', name: '大杯', px: 624 },
-  ]
-  // 预设之外还有菜单里的「自定义」px 输入框（上游同样是「预设 + 自定义」的形状）。
-  // 挂件是分辨率无关的等比布局，落在这个区间里都能正确排版。
-  var DEFAULT_SIZE = 454
-  var MIN_SIZE = 96
-  var MAX_SIZE = 1200
+  // 尺寸模型照搬 dsh-whale-widget：**连续缩放**，不是固定像素档。
+  //   base = clamp(122px, min(250px, min(100vw,100vh) * 0.28) * scale, 625px)
+  // scale 由菜单里的 1–20 级滑杆控制（0.6 – 2.5），窗口尺寸变化时按同一公式重算。
+  var SCALE_MIN = 0.6
+  var SCALE_MAX = 2.5
+  var SCALE_STEP = 0.1
+  var SCALE_STEPS = 20                     // 滑杆 1–20 级
+  var SIZE_MIN_PX = 122
+  var SIZE_MAX_PX = 625
+  var SIZE_BASE_RATIO = 0.28
+  var SIZE_BASE_CAP = 250
+  var DEFAULT_SCALE = 1
 
   var BOWL_WAIT = 10.0
   var LOCK_DELAY = 1.0
@@ -204,11 +207,11 @@
       'font-size:16px;line-height:1;cursor:pointer;padding:0;pointer-events:none;opacity:0;transition:opacity .15s ease;z-index:2}',
     '.dshvk1-btn.dshvk1-btn-on{opacity:1;pointer-events:auto}',
     '.dshvk1-btn:hover{background:#203170}',
-    '.dshvk1-menu{position:fixed;min-width:206px;max-height:84vh;overflow:auto;background:var(--dsw-alias-bg-overlay,#fff);border:1px solid var(--dsw-alias-border-l2,rgba(32,49,112,.35));' +
-      'border-radius:10px;padding:6px;box-shadow:0 8px 24px rgba(0,0,0,.18);z-index:10002;display:none;color-scheme:light dark}',
+    '.dshvk1-menu{position:fixed;min-width:206px;max-width:min(260px,calc(100vw - 8px));max-height:82vh;overflow:auto;background:var(--dsw-alias-bg-overlay,#fff);border:1px solid var(--dsw-alias-border-l2,rgba(32,49,112,.35));' +
+      'border-radius:9px;padding:4px;box-shadow:0 8px 24px rgba(0,0,0,.18);z-index:10002;display:none;color-scheme:light dark}',
     '.dshvk1-menu.dshvk1-menu-open{display:block}',
-    '.dshvk1-menu-row{display:block;width:100%;text-align:left;padding:6px 10px;border:none;border-radius:7px;background:transparent;' +
-      'color:var(--dsw-alias-label-primary,#203170);font-size:12.5px;cursor:pointer;white-space:nowrap;box-sizing:border-box;font-family:inherit}',
+    '.dshvk1-menu-row{display:block;width:100%;text-align:left;padding:3px 7px;border:none;border-radius:6px;background:transparent;' +
+      'color:var(--dsw-alias-label-primary,#203170);font-size:12px;cursor:pointer;white-space:nowrap;box-sizing:border-box;font-family:inherit;line-height:1.5}',
     '.dshvk1-menu-row:hover{background:var(--dsw-alias-bg-layer-2,rgba(32,49,112,.08))}',
     '.dshvk1-menu-row-flex{display:flex;align-items:center;justify-content:space-between;gap:10px}',
     '.dshvk1-menu-sep{height:1px;background:var(--dsw-alias-border-l1,rgba(32,49,112,.25));margin:5px 2px}',
@@ -307,7 +310,10 @@
 
   // ----------------------------------------------------------------- state ---
   var state = {
-    size: DEFAULT_SIZE,
+    size: 250,          // 由 scale 与视口算出来，见 applySize()
+    scale: DEFAULT_SCALE,
+    radarOn: true,
+    dropIntervalSec: DROP_INTERVAL_DEFAULT_S,
     real: NaN,
     bookedAt: NaN,
     bookedBal: NaN,
@@ -346,6 +352,7 @@
     usage: null,
     peakMode: false, peakHold: 5,
     cloudOffset: 0,
+    hostVersion: '',
     lastTabletClick: null,
   }
 
@@ -953,6 +960,15 @@
   }
 
   function updateRadar(dt) {
+    // 火控雷达是独立开关：关掉时铭牌、10s 锁定与磁吸都不工作，盆留在原地等你拖。
+    if (!state.radarOn) {
+      state.lockAll = false
+      state.lockT = 0
+      state.radarManual = false
+      state.bowlWait = 0
+      if (radarSvg.firstChild) radarSvg.innerHTML = ''
+      return
+    }
     var anyRice = false
     for (var i = 0; i < state.bowls.length; i++) {
       if (!state.bowls[i].iron && !state.bowls[i].fed) { anyRice = true; break }
@@ -1117,6 +1133,7 @@
         if (stopped) return
         if (d && d.ok && d.totalBalance != null && isFinite(Number(d.totalBalance))) {
           if (d.serverTime && isFinite(Date.parse(d.serverTime))) state.cloudOffset = Date.parse(d.serverTime) - Date.now()
+          if (d.version) state.hostVersion = String(d.version)
           applyBalance(Number(d.totalBalance), !!snap)
         }
         else { state.connected = false; updateScreen() }
@@ -1695,6 +1712,27 @@
     document.removeEventListener('pointerup', onUp, true)
     document.removeEventListener('pointercancel', onUp, true)
   }
+  // 命中角色或饭盆的那次按下会把后续 click 吞掉，避免点到身后的按钮。
+  var swallowClickUntil = 0
+  function swallowNextClick(ms) {
+    var until = Date.now() + (ms || 400)
+    if (until > swallowClickUntil) swallowClickUntil = until
+  }
+  function onDocClick(e) {
+    // 菜单 / 设置面板 / ☰ 按钮自己的点击必须放行。
+    var t = e.target
+    if (t && t.closest && (t.closest('.dshvk1-menu') || t.closest('.dshvk1-dialog') || t.closest('.dshvk1-btn'))) return
+    var swallow = Date.now() <= swallowClickUntil
+    if (!swallow && typeof e.clientX === 'number') {
+      // 兜底：按这次 click 的坐标再判一次「是否点在角色或道具上」。
+      swallow = !!isHit(e) || !!bowlAt(e.clientX, e.clientY)
+    }
+    if (!swallow) return
+    swallowClickUntil = 0
+    try { e.stopPropagation(); e.preventDefault() } catch (err) {}
+  }
+  document.addEventListener('click', onDocClick, true)
+
   function onDown(e) {
     blockPat()
     if (settingsOpen) return
@@ -1703,6 +1741,8 @@
     if (e.target && e.target.closest && e.target.closest('.dshvk1-menu')) return
 
     var onArt = isHit(e)
+    // 只要按下点落在角色或道具上，就把随后那次 click 吞掉（拖拽与单击都一样）。
+    if (onArt || bowlAt(e.clientX, e.clientY)) swallowNextClick(400)
     // Double-clicking her head (with the pot on it) is decided FIRST: the worn pot
     // is a wide circle sitting right on that spot, so a bowl grab would eat it.
     var now = Date.now()
@@ -1801,6 +1841,7 @@
     state.dragWidget = null
     root.classList.remove('dshvk1-dragging')
     removeDragListeners()
+    swallowNextClick(400)
     if (!d.moved) { poll(true); return }
 
     var vp = viewport()
@@ -1840,6 +1881,9 @@
     openMenu(e.clientX, e.clientY)
   }
   function onResize() {
+    // 窗口尺寸变了，base 尺寸按 scale 重算（与鲸鱼挂件一致的响应式基准）
+    var next = baseSizePx(state.scale)
+    if (next !== state.size) { applySize(); return }
     if (state.h === null && state.v === null && applyAnchorPos()) return
     settle()
   }
@@ -1869,22 +1913,121 @@
     b.textContent = text
     b.addEventListener('click', function (e) { e.stopPropagation(); closeMenu(); onClick() })
     menu.appendChild(b)
+    return b
   }
+  function menuSep() {
+    var d = document.createElement('div')
+    d.className = 'dshvk1-menu-sep'
+    menu.appendChild(d)
+  }
+  function menuToggle(labelText, checked, onChange) {
+    var row = document.createElement('div')
+    row.className = 'dshvk1-menu-row dshvk1-menu-row-flex'
+    var label = document.createElement('span')
+    label.textContent = labelText
+    var box = document.createElement('input')
+    box.type = 'checkbox'
+    box.checked = !!checked
+    box.addEventListener('click', function (e) { e.stopPropagation() })
+    box.addEventListener('change', function () { onChange(box.checked) })
+    row.appendChild(label)
+    row.appendChild(box)
+    menu.appendChild(row)
+    return row
+  }
+
+  // 一级菜单：余额 / 大小 / 火控雷达 / 掉盆间隔 + 二级入口。整体是「一行一项、右侧控件」
+  // 的高密度布局，与 dsh-whale-widget 的主菜单同一形态。
   function buildMenu() {
     menu.textContent = ''
-    menuRow('立即刷新余额', function () { poll(true) })
-    menuRow('演示（只播动画）', function () { showSettings('demo') })
-    menuRow('设置与吸附', function () { showSettings('display') })
-    menuRow('显示峰谷时钟', function () { state.peakMode = !state.peakMode; state.peakHold = 5; updateTablet() })
+    var head = document.createElement('div')
+    head.className = 'dshvk1-menu-head'
+    var bal = document.createElement('span')
+    bal.className = 'dshvk1-menu-bal'
+    var v = drawnBalance()
+    bal.textContent = (isFinite(v) ? '\u00A5' + fmt2(v) : '\u00A5--') + (state.connected ? '' : ' \u00B7 \u79BB\u7EBF')
+    head.appendChild(bal)
+    var refresh = document.createElement('button')
+    refresh.type = 'button'
+    refresh.className = 'dshvk1-menu-mini'
+    refresh.textContent = '\u5237\u65B0'
+    refresh.addEventListener('click', function (e) { e.stopPropagation(); closeMenu(); poll(true) })
+    head.appendChild(refresh)
+    menu.appendChild(head)
 
+    var sizeRow = document.createElement('div')
+    sizeRow.className = 'dshvk1-menu-row dshvk1-menu-row-flex'
+    var sizeLabel = document.createElement('span')
+    sizeLabel.textContent = '\u5927\u5C0F'
+    var range = document.createElement('input')
+    range.type = 'range'
+    range.className = 'dshvk1-menu-range'
+    range.min = '1'; range.max = String(SCALE_STEPS); range.step = '1'
+    range.value = String(scaleToStep(state.scale))
+    var num = document.createElement('input')
+    num.type = 'number'
+    num.className = 'dshvk1-menu-num'
+    num.min = '1'; num.max = String(SCALE_STEPS); num.step = '1'
+    num.value = range.value
+    var applyStep = function (step) {
+      var n = clamp(Math.round(Number(step) || 1), 1, SCALE_STEPS)
+      setScale(stepToScale(n))
+      range.value = String(n)
+      num.value = String(n)
+    }
+    range.addEventListener('click', function (e) { e.stopPropagation() })
+    num.addEventListener('click', function (e) { e.stopPropagation() })
+    range.addEventListener('input', function () { applyStep(range.value) })
+    num.addEventListener('change', function () { applyStep(num.value) })
+    sizeRow.appendChild(sizeLabel)
+    sizeRow.appendChild(range)
+    sizeRow.appendChild(num)
+    menu.appendChild(sizeRow)
+
+    menuToggle('\u706B\u63A7\u96F7\u8FBE\u94ED\u724C', state.radarOn, function (on) {
+      state.radarOn = on
+      saveOptions()
+      if (!on) { state.lockAll = false; state.radarManual = false; if (radarSvg.firstChild) radarSvg.innerHTML = '' }
+    })
+
+    var dropRow = document.createElement('div')
+    dropRow.className = 'dshvk1-menu-row dshvk1-menu-row-flex'
+    var dropLabel = document.createElement('span')
+    dropLabel.textContent = '\u6389\u76C6\u95F4\u9694'
+    var dropNum = document.createElement('input')
+    dropNum.type = 'number'
+    dropNum.className = 'dshvk1-menu-num'
+    dropNum.min = String(DROP_INTERVAL_MIN_S)
+    dropNum.max = String(DROP_INTERVAL_MAX_S)
+    dropNum.step = '1'
+    dropNum.value = String(state.dropIntervalSec)
+    var unit = document.createElement('span')
+    unit.className = 'dshvk1-menu-unit'
+    unit.textContent = '\u79D2'
+    dropNum.addEventListener('click', function (e) { e.stopPropagation() })
+    dropNum.addEventListener('change', function () {
+      setDropInterval(dropNum.value)
+      dropNum.value = String(state.dropIntervalSec)
+    })
+    dropRow.appendChild(dropLabel)
+    dropRow.appendChild(dropNum)
+    dropRow.appendChild(unit)
+    menu.appendChild(dropRow)
+
+    menuSep()
+    menuRow('\u5438\u9644\u4E0E\u7FFB\u8F6C', function () { showSettings('snap') })
+    menuRow('\u58F0\u97F3\u4E0E\u97F3\u6548', function () { showSettings('sound') })
+    menuRow('\u97F3\u6548\u5E93', function () { showSettings('library') })
+    menuRow('\u6F14\u793A\uFF08\u53EA\u64AD\u52A8\u753B\uFF09', function () { showSettings('demo') })
+    menuRow('\u5173\u4E8E', function () { showSettings('about') })
   }
   function openMenu(clientX, clientY) {
     buildMenu()
     state.menuOpen = true
     menu.classList.add('dshvk1-menu-open')
     keepBtn()
-    var mw = menu.offsetWidth || 220
-    var mh = menu.offsetHeight || 300
+    var mw = menu.offsetWidth || 236
+    var mh = menu.offsetHeight || 320
     var vp = viewport()
     menu.style.left = clamp(clientX, 4, Math.max(4, vp.w - mw - 4)) + 'px'
     menu.style.top = clamp(clientY, 4, Math.max(4, vp.h - mh - 4)) + 'px'
@@ -1907,23 +2050,46 @@
     if (e.target && e.target.closest && (e.target.closest('.dshvk1-menu') || e.target.closest('.dshvk1-btn') || e.target.closest('.dshvk1-dialog'))) return
     closeMenu()
   }
-  document.addEventListener('pointerdown', onDocMenuClose, true)
 
   // ------------------------------------------------------------ size & gap ---
-  function setSize(v) {
-    state.size = clamp(Math.round(v) || DEFAULT_SIZE, MIN_SIZE, MAX_SIZE)
-    try { localStorage.setItem(SIZE_KEY, String(state.size)) } catch (err) {}
+  // ---- 尺寸：scale -> 像素（照搬 dsh-whale-widget 的 --dshw-base 公式）----
+  function stepToScale(step) {
+    var n = clamp(Math.round(Number(step) || 1), 1, SCALE_STEPS)
+    return Math.round((SCALE_MIN + (n - 1) * (SCALE_MAX - SCALE_MIN) / (SCALE_STEPS - 1)) * 100) / 100
+  }
+  function scaleToStep(scale) {
+    var sc = clamp(Number(scale) || DEFAULT_SCALE, SCALE_MIN, SCALE_MAX)
+    return Math.round(1 + (sc - SCALE_MIN) * (SCALE_STEPS - 1) / (SCALE_MAX - SCALE_MIN))
+  }
+  function baseSizePx(scale) {
+    var vp = viewport()
+    var base = Math.min(SIZE_BASE_CAP, Math.min(vp.w, vp.h) * SIZE_BASE_RATIO) * (Number(scale) || DEFAULT_SCALE)
+    return Math.round(clamp(base, SIZE_MIN_PX, SIZE_MAX_PX))
+  }
+  // 尺寸变化后所有依赖 size 的几何都要重算：平板面板、盆的尺寸与半径、命中画布。
+  function applySize() {
+    state.size = baseSizePx(state.scale)
+    try { localStorage.setItem(SIZE_KEY, JSON.stringify({ v: 2, scale: state.scale })) } catch (err) {}
     riceSizeCache = null
     for (var i = 0; i < state.bowls.length; i++) {
       var b = state.bowls[i]
-      var s = b.iron ? (b.onHead ? ironWornSize() : ironLooseSize()) : riceDims()
-      b.artW = s.w; b.artH = s.h; b.R = s.w * 0.42
-      b.el.style.width = s.w + 'px'
-      b.el.style.height = s.h + 'px'
+      var sz = b.iron ? (b.onHead ? ironWornSize() : ironLooseSize()) : riceDims()
+      b.artW = sz.w; b.artH = sz.h; b.R = sz.w * 0.42
+      b.el.style.width = sz.w + 'px'
+      b.el.style.height = sz.h + 'px'
     }
     layout()
     settle()
     saveAnchor()
+  }
+  function setScale(scale) {
+    state.scale = Math.round(clamp(Number(scale) || DEFAULT_SCALE, SCALE_MIN, SCALE_MAX) * 100) / 100
+    applySize()
+  }
+  function setDropInterval(sec) {
+    state.dropIntervalSec = clamp(Math.round(Number(sec) || DROP_INTERVAL_DEFAULT_S), DROP_INTERVAL_MIN_S, DROP_INTERVAL_MAX_S)
+    saveOptions()
+    restartDropTimer()
   }
   function saveGap() {
     try { localStorage.setItem(GAP_KEY, JSON.stringify({ on: state.scrollGapOn, px: state.scrollGapPx })) } catch (err) {}
@@ -2070,30 +2236,48 @@
     updateTablet()
   }
   function saveOptions() {
-    try { localStorage.setItem(OPTIONS_KEY, JSON.stringify({ fxBowl: state.fxBowl, fxPat: state.fxPat, fxHurt: state.fxHurt, theme: state.theme, cueVolumes: state.cueVolumes })) } catch (e) {}
+    try {
+      localStorage.setItem(OPTIONS_KEY, JSON.stringify({
+        fxBowl: state.fxBowl, fxPat: state.fxPat, fxHurt: state.fxHurt,
+        theme: state.theme, cueVolumes: state.cueVolumes,
+        radarOn: state.radarOn, dropIntervalSec: state.dropIntervalSec,
+      }))
+    } catch (e) {}
   }
 
   // Four-page settings surface. All placement follows grid/flex layout, including narrow viewports.
   styleEl.textContent += '\n' + [
-    '.dshvk1-dialog{--vk-bg:#fff;--vk-ink:#203052;--vk-muted:#65718b;--vk-border:#d9deea;--vk-card:#f2f5fa;--vk-accent:#3c5ddb;background:var(--vk-bg);color:var(--vk-ink);border:1px solid var(--vk-border);border-radius:14px;padding:0;width:min(560px,calc(100vw - 24px));max-height:calc(100dvh - 32px);box-sizing:border-box;box-shadow:0 10px 30px #0003;font:14px/1.5 system-ui,sans-serif}',
+    '.dshvk1-dialog{--vk-bg:#fff;--vk-ink:#203052;--vk-muted:#65718b;--vk-border:#d9deea;--vk-card:#f2f5fa;--vk-accent:#3c5ddb;background:var(--vk-bg);color:var(--vk-ink);border:1px solid var(--vk-border);border-radius:12px;padding:0;width:min(400px,calc(100vw - 24px));max-height:min(78vh,calc(100dvh - 32px));box-sizing:border-box;box-shadow:0 10px 30px #0003;font:13px/1.45 system-ui,sans-serif;display:flex;flex-direction:column;overflow:hidden}',
     '.dshvk1-mask{position:fixed;inset:0;background:rgba(15,23,42,.55);z-index:22000;display:none;align-items:center;justify-content:center;color-scheme:light;padding:12px;box-sizing:border-box}',
     '.dshvk1-mask.dshvk1-mask-open{display:flex}',
     '.dshvk1-dialog[data-theme=dark]{--vk-bg:#171e2d;--vk-ink:#edf2ff;--vk-muted:#a3b0ca;--vk-border:#3b4861;--vk-card:#232e43;--vk-accent:#9eb7ff;color-scheme:dark}',
     '@media(prefers-color-scheme:dark){.dshvk1-dialog[data-theme=auto]{--vk-bg:#171e2d;--vk-ink:#edf2ff;--vk-muted:#a3b0ca;--vk-border:#3b4861;--vk-card:#232e43;--vk-accent:#9eb7ff;color-scheme:dark}}',
-    '.dshvk1-dialog header{position:sticky;top:0;z-index:2;background:var(--vk-bg);display:flex;align-items:center;justify-content:space-between;gap:12px;padding:16px 20px;border-bottom:1px solid var(--vk-border)}',
-    '.dshvk1-dialog h2{margin:0;font-size:18px}.dshvk1-dialog h3{margin:12px 0 8px;font-size:14px}',
-    '.dshvk1-tabs{display:flex;flex-wrap:wrap;gap:6px;padding:12px 20px;border-bottom:1px solid var(--vk-border)}',
+    '.dshvk1-dialog header{position:sticky;top:0;z-index:2;background:var(--vk-bg);display:flex;align-items:center;gap:8px;padding:8px 10px;border-bottom:1px solid var(--vk-border)}',
+    '.dshvk1-dialog h2{margin:0;font-size:13.5px;font-weight:700;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}',
+    '.dshvk1-dialog h3{margin:10px 0 4px;font-size:11.5px;font-weight:700;color:var(--vk-muted);letter-spacing:.04em}',
+    '.dshvk1-back{background:transparent!important;border:none!important;padding:2px 4px!important;color:var(--vk-accent)!important;cursor:pointer}',
+    '.dshvk1-close{background:transparent!important;border:none!important;padding:0 4px!important;font-size:18px!important;line-height:1!important;color:var(--vk-muted)!important;cursor:pointer}',
     '.dshvk1-dialog button,.dshvk1-dialog select,.dshvk1-dialog input{font:inherit;color:inherit;box-sizing:border-box}',
-    '.dshvk1-dialog button,.dshvk1-dialog select{background:var(--vk-card);border:1px solid var(--vk-border);border-radius:8px;padding:7px 11px;cursor:pointer}',
+    '.dshvk1-dialog button,.dshvk1-dialog select{background:var(--vk-card);border:1px solid var(--vk-border);border-radius:6px;padding:3px 8px;cursor:pointer;font-size:12px}',
     '.dshvk1-dialog button[aria-selected=true]{color:var(--vk-accent);border-color:var(--vk-accent);font-weight:700}',
-    '.dshvk1-dialog button:focus-visible,.dshvk1-dialog input:focus-visible,.dshvk1-dialog select:focus-visible{outline:2px solid var(--vk-accent);outline-offset:2px}',
-    '.dshvk1-dialog button:disabled{opacity:.5;cursor:default}.dshvk1-content{padding:4px 20px 20px;overflow-wrap:anywhere}',
-    '.dshvk1-setting{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:8px;padding:10px 0;border-bottom:1px solid var(--vk-border)}',
-    '.dshvk1-setting label{display:flex;align-items:center;gap:8px;flex-wrap:wrap}.dshvk1-setting input[type=number]{width:90px;padding:5px;background:var(--vk-card);border:1px solid var(--vk-border);border-radius:6px}',
-    '.dshvk1-actions{display:flex;flex-wrap:wrap;gap:6px;margin:10px 0}.dshvk1-hint{color:var(--vk-muted);font-size:12px}.dshvk1-status{min-height:1.5em;margin:8px 0;color:var(--vk-accent)}',
-    '.dshvk1-clip{border:1px solid var(--vk-border);border-radius:10px;padding:12px;margin:10px 0}.dshvk1-dialog input[type=text]{max-width:100%;width:100%;padding:6px;background:var(--vk-card);border:1px solid var(--vk-border);border-radius:6px}',
-    '.dshvk1-wave{display:block;width:100%;height:84px;background:var(--vk-card);border-radius:6px;margin:8px 0}',
-    '@media(max-width:420px){.dshvk1-dialog header,.dshvk1-tabs{padding:12px}.dshvk1-content{padding:4px 12px 12px}.dshvk1-setting{align-items:flex-start}.dshvk1-dialog input[type=range]{max-width:145px}}'
+    '.dshvk1-dialog button:focus-visible,.dshvk1-dialog input:focus-visible,.dshvk1-dialog select:focus-visible{outline:2px solid var(--vk-accent);outline-offset:1px}',
+    '.dshvk1-dialog button:disabled{opacity:.5;cursor:default}',
+    '.dshvk1-content{padding:2px 10px 10px;overflow:auto;overflow-wrap:anywhere;flex:1 1 auto}',
+    '.dshvk1-setting{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:5px 0;border-bottom:1px solid var(--vk-border)}',
+    '.dshvk1-setting:last-child{border-bottom:none}',
+    '.dshvk1-setting-name{flex:1 1 auto;min-width:0;font-size:12.5px}',
+    '.dshvk1-num{width:74px;padding:2px 5px;background:var(--vk-card);border:1px solid var(--vk-border);border-radius:5px;font-size:12px;text-align:right}',
+    '.dshvk1-range{width:130px;max-width:46vw;accent-color:var(--vk-accent)}',
+    '.dshvk1-actions{display:flex;flex-wrap:wrap;gap:5px;margin:6px 0}',
+    '.dshvk1-hint{color:var(--vk-muted);font-size:11.5px;margin:4px 0 6px;line-height:1.45}',
+    '.dshvk1-status{min-height:1.4em;margin:4px 0;color:var(--vk-accent);font-size:12px}',
+    '.dshvk1-clip{border:1px solid var(--vk-border);border-radius:8px;padding:8px;margin:6px 0}',
+    '.dshvk1-dialog input[type=text]{max-width:100%;width:100%;padding:4px;background:var(--vk-card);border:1px solid var(--vk-border);border-radius:5px;font-size:12px}',
+    '.dshvk1-wave{display:block;width:100%;height:60px;background:var(--vk-card);border-radius:5px;margin:6px 0}',
+    '.dshvk1-menu-head{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:2px 6px 5px;border-bottom:1px solid var(--dsw-alias-border-l1,rgba(32,49,112,.25));margin-bottom:3px}',
+    '.dshvk1-menu-bal{font-size:13px;font-weight:800;font-variant-numeric:tabular-nums}',
+    '.dshvk1-menu-mini{background:var(--dsw-alias-bg-layer-1,transparent);border:1px solid var(--dsw-alias-border-l2,rgba(32,49,112,.35));border-radius:5px;padding:1px 7px;font-size:11.5px;cursor:pointer;color:inherit;font-family:inherit}',
+    '.dshvk1-menu-range{width:104px;accent-color:var(--dsw-alias-brand-primary,#203170)}',
   ].join('\n')
   var settingsOpen = false
   // 照搬 dsh-whale-widget 的设置面板结构：一层 .xxmask 遮罩 + 居中的 .xxcard 卡片，
@@ -2106,19 +2290,30 @@
   settings.setAttribute('aria-modal', 'true')
   settings.setAttribute('aria-labelledby', 'dshvk1-settings-title')
   var settingsHeader = document.createElement('header')
+  var settingsBack = document.createElement('button')
+  settingsBack.type = 'button'
+  settingsBack.className = 'dshvk1-back'
+  settingsBack.textContent = '\u2039 \u8FD4\u56DE'
+  // 二级界面的返回：回到一级菜单（即挂件右键菜单），而不是直接关窗。
+  settingsBack.addEventListener('click', function () {
+    stopPreview()
+    closeSettingsPanel()
+    var r = root.getBoundingClientRect()
+    openMenu(r.right, r.bottom)
+  })
+  settingsHeader.appendChild(settingsBack)
   var settingsTitle = document.createElement('h2')
   settingsTitle.id = 'dshvk1-settings-title'
-  settingsTitle.textContent = 'VK-1 设置'
+  settingsTitle.textContent = '\u8BBE\u7F6E'
   settingsHeader.appendChild(settingsTitle)
   var closeSettings = document.createElement('button')
-  closeSettings.textContent = '关闭'
+  closeSettings.type = 'button'
+  closeSettings.className = 'dshvk1-close'
+  closeSettings.title = '\u5173\u95ED'
+  closeSettings.textContent = '\u00D7'
   closeSettings.addEventListener('click', function () { closeSettingsPanel() })
   settingsHeader.appendChild(closeSettings)
   settings.appendChild(settingsHeader)
-  var tabs = document.createElement('nav')
-  tabs.className = 'dshvk1-tabs'
-  tabs.setAttribute('aria-label', '设置分类')
-  settings.appendChild(tabs)
   var content = document.createElement('div')
   content.className = 'dshvk1-content'
   settings.appendChild(content)
@@ -2147,13 +2342,7 @@
     return b
   }
   function hint(text, parent) { return element('p', text, parent || content, 'dshvk1-hint') }
-  function toggle(text, checked, fn) {
-    var row = element('div', null, content, 'dshvk1-setting')
-    var label = element('label', text, row)
-    var input = element('input', null, label)
-    input.type = 'checkbox'; input.checked = checked
-    input.addEventListener('change', function () { fn(input.checked) })
-  }
+  // 音效库编辑器的数值/滑杆控件（设置主界面已改用 row() + numberBox()/rangeBox()）
   function numeric(parent, text, value, min, max, step, fn, type) {
     var label = element('label', text, parent)
     var input = element('input', null, label)
@@ -2172,104 +2361,140 @@
     if (e.key === 'Escape') { closeMenu(); if (settingsOpen) { closeSettingsPanel(); e.stopPropagation() } }
   }
   document.addEventListener('keydown', onEscape, true)
+  var SETTINGS_PAGES = {
+    snap: '\u5438\u9644\u4E0E\u7FFB\u8F6C',
+    sound: '\u58F0\u97F3\u4E0E\u97F3\u6548',
+    library: '\u97F3\u6548\u5E93',
+    demo: '\u6F14\u793A\uFF08\u53EA\u64AD\u52A8\u753B\uFF09',
+    about: '\u5173\u4E8E',
+  }
   function showSettings(page) {
     blockPat(); closeMenu()
-    settingsPage = page || 'display'
+    settingsPage = SETTINGS_PAGES[page] ? page : 'snap'
     renderSettings()
     if (!settingsOpen) {
       settingsOpen = true
       settingsMask.classList.add('dshvk1-mask-open')
     }
   }
+  // 二级页统一入口：标题由 settingsPage 决定，点标题左侧「‹ 返回」回到一级菜单。
+  function setPage(page) { stopPreview(); settingsPage = page; renderSettings() }
+  function section(title) { return element('h3', title, content) }
+  function row(label, control) {
+    var r = element('div', null, content, 'dshvk1-setting')
+    var l = element('span', null, r, 'dshvk1-setting-name')
+    l.textContent = label
+    if (control) r.appendChild(control)
+    return r
+  }
+  function checkbox(checked, onChange) {
+    var box = element('input')
+    box.type = 'checkbox'
+    box.checked = !!checked
+    box.addEventListener('change', function () { onChange(box.checked) })
+    return box
+  }
+  function numberBox(value, min, max, step, onChange) {
+    var input = element('input', null, null, 'dshvk1-num')
+    input.type = 'number'
+    input.min = min; input.max = max; input.step = step; input.value = value
+    input.addEventListener('change', function () {
+      var v = Number(input.value)
+      if (!isFinite(v)) return
+      onChange(clamp(v, min, max))
+    })
+    return input
+  }
+  function rangeBox(value, min, max, step, onChange) {
+    var input = element('input', null, null, 'dshvk1-range')
+    input.type = 'range'
+    input.min = min; input.max = max; input.step = step; input.value = value
+    input.addEventListener('input', function () { onChange(Number(input.value)) })
+    return input
+  }
+  function chips(options, current, onPick) {
+    var wrap = element('div', null, content, 'dshvk1-actions')
+    options.forEach(function (opt) {
+      var b = action(wrap, opt[1], function () { onPick(opt[0]) })
+      b.setAttribute('aria-selected', String(current === opt[0]))
+    })
+    return wrap
+  }
+
   function renderSettings() {
     renderGeneration++
     settings.dataset.theme = state.theme
-    tabs.textContent = ''; content.textContent = ''
-    ;[['display', '显示'], ['sound', '声音'], ['library', '音效库'], ['demo', '演示']].forEach(function (tab) {
-      var b = action(tabs, tab[1], function () { stopPreview(); settingsPage = tab[0]; renderSettings() })
-      b.setAttribute('aria-selected', String(settingsPage === tab[0]))
-    })
-    if (settingsPage === 'display') {
-      element('h3', '功能选择', content)
-      ;[['fxBowl', '充值后掉落饭盆，手动拖取'], ['fxPat', '鼠标抚摸了会开心'], ['fxHurt', '扣费时播放音效与动画']].forEach(function (item) {
-        toggle(item[1], state[item[0]], function (v) { state[item[0]] = v; saveOptions(); if (!v && item[0] === 'fxPat') blockPat() })
-      })
-      hint('关闭掉盆后，新充值直接入账；关闭扣费效果仍会结算余额。演示同样遵守开关。')
-      element('h3', '外观与尺寸', content)
-      var themes = element('div', null, content, 'dshvk1-actions')
-      ;[['auto', '跟随系统'], ['light', '浅色'], ['dark', '深色']].forEach(function (t) {
-        var b = action(themes, t[1], function () { state.theme = t[0]; saveOptions(); renderSettings() })
-        b.setAttribute('aria-selected', String(state.theme === t[0]))
-      })
-      var sizes = element('div', null, content, 'dshvk1-actions')
-      SIZE_PRESETS.forEach(function (preset) {
-        var b = action(sizes, preset.name + ' · ' + preset.px + 'px', function () { setSize(preset.px); renderSettings() })
-        b.setAttribute('aria-selected', String(state.size === preset.px))
-      })
-      numeric(element('div', null, content, 'dshvk1-setting'), '自定义尺寸（px）', state.size, MIN_SIZE, MAX_SIZE, 1, setSize)
-      toggle('避让滚动条', state.scrollGapOn, setScrollGapOn)
-      numeric(element('div', null, content, 'dshvk1-setting'), '避让宽度（px）', state.scrollGapPx, 0, 100, 1, setScrollGapPx)
+    settingsTitle.textContent = SETTINGS_PAGES[settingsPage] || '\u8BBE\u7F6E'
+    content.textContent = ''
 
-      // —— 吸附与翻转 ——（照搬 dsh-whale-widget：四边吸附区宽度 + 翻转线，ratio/px/off 三档）
-      element('h3', '吸附与翻转', content)
-      var modes = element('div', null, content, 'dshvk1-actions')
-      ;[['ratio', '按比例'], ['px', '按像素'], ['off', '关闭吸附']].forEach(function (m) {
-        var b = action(modes, m[1], function () {
-          snapConfig.mode = m[0]
-          fixSnapConfig(snapConfig, 'ratio'); fixSnapConfig(snapConfig, 'px')
-          saveSnapConfig(); settle(); saveAnchor(); renderSettings()
-        })
-        b.setAttribute('aria-selected', String(snapConfig.mode === m[0]))
+    if (settingsPage === 'snap') {
+      section('\u5438\u9644\u533A\u57DF')
+      chips([['ratio', '\u6309\u6BD4\u4F8B'], ['px', '\u6309\u50CF\u7D20'], ['off', '\u5173\u95ED\u5438\u9644']], snapConfig.mode, function (mode) {
+        snapConfig.mode = mode
+        fixSnapConfig(snapConfig, 'ratio'); fixSnapConfig(snapConfig, 'px')
+        saveSnapConfig(); settle(); saveAnchor(); renderSettings()
       })
       if (snapConfig.mode !== 'off') {
         var box = snapConfig.mode === 'px' ? snapConfig.px : snapConfig.ratio
         var unit = snapConfig.mode === 'px' ? 'px' : '%'
-        ;[['L', '左吸附区'], ['T', '上吸附区'], ['R', '右吸附区'], ['B', '下吸附区'], ['F', '翻转线']].forEach(function (item) {
-          var max = snapConfig.mode === 'px' ? 4000 : 100
-          numeric(element('div', null, content, 'dshvk1-setting'), item[1] + '（' + unit + '）', box[item[0]], 0, max, snapConfig.mode === 'px' ? 1 : 0.5, function (v) {
+        var upper = snapConfig.mode === 'px' ? 4000 : 100
+        ;[['L', '\u5DE6'], ['T', '\u4E0A'], ['R', '\u53F3'], ['B', '\u4E0B'], ['F', '\u7FFB\u8F6C\u7EBF']].forEach(function (item) {
+          row(item[1] + '\uFF08' + unit + '\uFF09', numberBox(box[item[0]], 0, upper, snapConfig.mode === 'px' ? 1 : 0.5, function (v) {
             box[item[0]] = v
             fixSnapConfig(snapConfig, snapConfig.mode)
             saveSnapConfig(); settle(); saveAnchor()
-          })
+          }))
         })
-        hint('判定点与鲸鱼挂件一致：左右看角色中心 x、上下看中心 y；越过翻转线就镜像朝向。关掉吸附则完全自由摆放。')
+        hint('\u5DE6\u53F3\u770B\u89D2\u8272\u4E2D\u5FC3 x\u3001\u4E0A\u4E0B\u770B\u4E2D\u5FC3 y\uFF1B\u8D8A\u8FC7\u7FFB\u8F6C\u7EBF\u5C31\u955C\u50CF\u3002')
       } else {
-        hint('吸附已关闭：角色停在松手的位置，也不做左右镜像。')
+        hint('\u5DF2\u5173\u95ED\uFF1A\u89D2\u8272\u505C\u5728\u677E\u624B\u4F4D\u7F6E\uFF0C\u4E5F\u4E0D\u505A\u5DE6\u53F3\u955C\u50CF\u3002')
       }
-      element('h3', '今日消费', content)
+      section('\u8FB9\u8DD1\u907F\u8BA9')
+      row('\u907F\u8BA9\u6EDA\u52A8\u6761', checkbox(state.scrollGapOn, setScrollGapOn))
+      row('\u907F\u8BA9\u5BBD\u5EA6\uFF08px\uFF09', numberBox(state.scrollGapPx, 0, 100, 1, setScrollGapPx))
+    } else if (settingsPage === 'sound') {
+      section('\u603B\u5F00\u5173')
+      row('\u5F00\u542F\u58F0\u97F3', checkbox(state.soundOn, function (on) { state.soundOn = on; saveSound(); if (!on) stopPlaying() }))
+      row('\u603B\u97F3\u91CF', rangeBox(state.volume, 0, 100, 1, function (v) { state.volume = v; saveSound() }))
+      section('\u5206\u9879\u97F3\u91CF')
+      CUE_NAMES.forEach(function (name, i) {
+        row(name, rangeBox(state.cueVolumes[i], 0, 100, 1, function (v) { state.cueVolumes[i] = v; saveOptions() }))
+      })
+      hint('\u603B\u97F3\u91CF\u4E0E\u5206\u9879\u97F3\u91CF\u76F8\u4E58\uFF1B\u8C03\u81F3 0% \u53EF\u5355\u72EC\u9759\u97F3\u3002\u81EA\u5B9A\u4E49\u97F3\u9891\u5728\u300C\u97F3\u6548\u5E93\u300D\u3002')
+    } else if (settingsPage === 'demo') {
+      hint('\u53EA\u64AD\u52A8\u753B\uFF08\u7EA2\u95EA / \u9707\u52A8 / \u98D8\u5B57 / \u97F3\u6548 / \u6389\u76C6\uFF09\uFF0C\u4E0D\u6539\u5E73\u677F\u6570\u5B57\uFF0C\u4E5F\u4E0D\u8BA1\u5165\u4ECA\u65E5\u6D88\u8D39\u3002')
+      var demoActions = element('div', null, content, 'dshvk1-actions')
+      action(demoActions, '\u5355\u6B21\u6263\u8D39', function () { makeTick(STEP, true) })
+      action(demoActions, '\u5341\u6B21\u6263\u8D39', function () { state.demoAmount = STEP; state.demoLeft = 10 })
+      var count = 10, amount = 3
+      row('\u81EA\u5B9A\u4E49\u6263\u8D39\u6B21\u6570', numberBox(count, 1, 10000, 1, function (v) { count = v }))
+      action(content, '\u6F14\u793A\u81EA\u5B9A\u4E49\u6263\u8D39', function () { state.demoAmount = STEP; state.demoLeft = count })
+      row('\u5145\u503C\u91D1\u989D\uFF08\u5143\uFF09', numberBox(amount, 0.01, 1000000, 0.01, function (v) { amount = v }))
+      var demoCredit = element('div', null, content, 'dshvk1-actions')
+      action(demoCredit, '\u6A21\u62DF\u5145\u503C 3 \u5143', function () { startCredit(3, true); closeSettingsPanel() })
+      action(demoCredit, '\u6F14\u793A\u81EA\u5B9A\u4E49\u5145\u503C', function () { startCredit(amount, true); closeSettingsPanel() })
+    } else if (settingsPage === 'about') {
+      section('\u7248\u672C')
+      hint('dsh-vk1-balance-pet v' + (state.hostVersion || '2.0.0'))
+      section('\u4F59\u989D\u6E20\u9053')
+      hint('\u5B98\u65B9\u8D26\u53F7\u51ED\u636E\u4F18\u5148\uFF1B\u65E0\u8D26\u53F7\u670D\u52A1\u65F6\u56DE\u9000 DSH \u5DF2\u914D\u7F6E\u7684 API Key\u3002\u4E0D\u63D0\u4F9B Key \u8F93\u5165\u3002')
+      section('\u4ECA\u65E5\u6D88\u8D39')
       var used = state.usage && state.usage.day === usageDay() ? state.usage.used : 0
-      hint('今日已用 ¥' + fmt2(used) + '。根据观察到的余额变化估算，充值和演示不计入消费；可用平台今日消费校准。')
-      numeric(element('div', null, content, 'dshvk1-setting'), '校准今日已用（元）', used, 0, 1000000, 0.0001, function (v) {
+      hint('\u5DF2\u7528 \u00A5' + fmt2(used) + '\uFF08\u6839\u636E\u4F59\u989D\u53D8\u5316\u4F30\u7B97\uFF0C\u4E0D\u542B\u5145\u503C\u4E0E\u6F14\u793A\uFF09')
+      row('\u6821\u51C6\u4ECA\u65E5\u5DF2\u7528\uFF08\u5143\uFF09', numberBox(used, 0, 1000000, 0.0001, function (v) {
         if (!isFinite(state.real)) return
         state.usage = { day: usageDay(), base: round4(state.real + v), topup: 0, last: state.real, used: v }
         saveUsage()
-      }).disabled = !isFinite(state.real)
-      action(content, '显示峰谷时钟', function () { state.peakMode = true; state.peakHold = 5; updateTablet(); closeSettingsPanel() })
-      hint('也可双击平板切换。离开角色 5 秒恢复余额；沿用上游北京时间 00:30–08:30 谷时规则，不含节假日调整。')
-    } else if (settingsPage === 'sound') {
-      toggle('开启声音', state.soundOn, function (on) { state.soundOn = on; saveSound(); if (!on) stopPlaying() })
-      numeric(element('div', null, content, 'dshvk1-setting'), '总音量', state.volume, 0, 100, 1, function (v) { state.volume = v; saveSound() }, 'range')
-      CUE_NAMES.forEach(function (name, i) {
-        numeric(element('div', null, content, 'dshvk1-setting'), name, state.cueVolumes[i], 0, 100, 1, function (v) { state.cueVolumes[i] = v; saveOptions() }, 'range')
-        action(content, '试听' + name, function () { playPool(cuePools[i]) })
-      })
-      hint('总音量与分项音量相乘；调至 0% 可单独静音该音效。')
-    } else if (settingsPage === 'demo') {
-      hint('仅本地演示：只播动画（红闪 / 震动 / 飘字 / 音效 / 掉盆），**不改变平板上的余额数字**，也不发起任何真实扣费或充值。')
-      var demoActions = element('div', null, content, 'dshvk1-actions')
-      action(demoActions, '单次扣费（只播动画）', function () { makeTick(STEP, true) })
-      action(demoActions, '十次扣费', function () { state.demoAmount = STEP; state.demoLeft = 10 })
-      var count = 10, amount = 3
-      numeric(element('div', null, content, 'dshvk1-setting'), '自定义扣费次数', count, 1, 10000, 1, function (v) { count = v })
-      action(content, '演示自定义扣费', function () { state.demoAmount = STEP; state.demoLeft = count })
-      numeric(element('div', null, content, 'dshvk1-setting'), '自定义充值金额（元）', amount, 0.01, 1000000, 0.01, function (v) { amount = v })
-      action(content, '模拟充值 3 元', function () { startCredit(3, true); closeSettingsPanel() })
-      action(content, '演示自定义充值', function () { startCredit(amount, true); closeSettingsPanel() })
-      action(content, '打开火控雷达', function () { state.radarManual = true; closeSettingsPanel() })
-    } else renderLibrary()
+      }))
+      section('\u5CE1\u8C37\u65F6\u949F')
+      var aboutActions = element('div', null, content, 'dshvk1-actions')
+      action(aboutActions, '\u663E\u793A\u5CE1\u8C37\u65F6\u949F', function () { state.peakMode = true; state.peakHold = 5; updateTablet(); closeSettingsPanel() })
+      hint('\u4E5F\u53EF\u53CC\u51FB\u5E73\u677F\u3002\u6CBF\u7528\u5317\u4EAC\u65F6\u95F4 00:30\u201308:30 \u8C37\u65F6\u89C4\u5219\u3002')
+    } else {
+      renderLibrary()
+    }
   }
 
-  var CUE_NAMES = ['掉血音效', '回血音效', '铁盆落头音效', '双击取盆音效']
   var DEFAULT_SOUNDS = [HIT_SOUND, FEED_SOUND, BASE + '/pot_land.mp3', BASE + '/pot_off.mp3']
   var soundDb = null, audioContext = null, previewAudio = null, previewUrl = null
   var clips = [], activeClips = {}, libraryStatus = ''
@@ -2450,8 +2675,22 @@
 
 
   try {
-    var savedSize = parseInt(localStorage.getItem(SIZE_KEY) || '', 10)
-    if (isFinite(savedSize) && savedSize >= MIN_SIZE && savedSize <= MAX_SIZE) state.size = savedSize
+    // 尺寸存的是 { v:2, scale }；早期版本存的是像素字符串，按公式反推 scale 兼容一次。
+    var rawSize = localStorage.getItem(SIZE_KEY)
+    if (rawSize) {
+      var parsed = JSON.parse(rawSize)
+      if (parsed && parsed.v === 2 && isFinite(Number(parsed.scale))) {
+        state.scale = Math.round(clamp(Number(parsed.scale), SCALE_MIN, SCALE_MAX) * 100) / 100
+      } else {
+        var legacyPx = parseInt(rawSize, 10)
+        if (isFinite(legacyPx) && legacyPx > 0) {
+          var vpNow = viewport()
+          var baseNow = Math.min(SIZE_BASE_CAP, Math.min(vpNow.w, vpNow.h) * SIZE_BASE_RATIO) || 1
+          state.scale = Math.round(clamp(legacyPx / baseNow, SCALE_MIN, SCALE_MAX) * 100) / 100
+        }
+      }
+    }
+    state.size = baseSizePx(state.scale)
     var g = JSON.parse(localStorage.getItem(GAP_KEY) || 'null')
     if (g) { state.scrollGapOn = !!g.on; state.scrollGapPx = typeof g.px === 'number' && g.px > 0 ? Math.round(g.px) : 0 }
     var s = JSON.parse(localStorage.getItem(SOUND_KEY) || 'null')
@@ -2462,6 +2701,10 @@
     var options = JSON.parse(localStorage.getItem(OPTIONS_KEY) || 'null')
     if (options) {
       ;['fxBowl', 'fxPat', 'fxHurt'].forEach(function (key) { state[key] = options[key] !== false })
+      if (typeof options.radarOn === 'boolean') state.radarOn = options.radarOn
+      if (isFinite(Number(options.dropIntervalSec))) {
+        state.dropIntervalSec = clamp(Math.round(Number(options.dropIntervalSec)), DROP_INTERVAL_MIN_S, DROP_INTERVAL_MAX_S)
+      }
       if (['auto', 'light', 'dark'].indexOf(options.theme) >= 0) state.theme = options.theme
       if (Array.isArray(options.cueVolumes) && options.cueVolumes.length === 4) state.cueVolumes = options.cueVolumes.map(function (n) { return isFinite(n) ? clamp(Number(n), 0, 100) : 100 })
     }
@@ -2479,7 +2722,12 @@
   rafId = requestAnimationFrame(frame)
   poll(false)
   var pollTimer = setInterval(function () { poll(false) }, POLL_MS)
-  var dropTimer = setInterval(dropTick, DROP_INTERVAL_MS)
+  var dropTimer = 0
+  function restartDropTimer() {
+    try { clearInterval(dropTimer) } catch (err) {}
+    dropTimer = setInterval(dropTick, state.dropIntervalSec * 1000)
+  }
+  restartDropTimer()
 
   // ------------------------------------------------- live mount/unmount hook ---
   // The appearance manager mounts this script when the bundle is enabled and asks
@@ -2498,6 +2746,7 @@
     document.removeEventListener('pointermove', onCursor, true)
     document.removeEventListener('contextmenu', onContextMenu, true)
     document.removeEventListener('pointerdown', onDocMenuClose, true)
+    document.removeEventListener('click', onDocClick, true)
     document.removeEventListener('pointerleave', pointerLeft)
     document.removeEventListener('keydown', onEscape, true)
     window.removeEventListener('blur', pointerLeft)

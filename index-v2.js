@@ -75,11 +75,22 @@ function apply(root) {
     const disposers = []
     const assetCache = new Map()
     let widgetSource = null
+    let widgetMtime = 0
     let balanceCache = null
     let balanceInFlight = null
 
     function readWidget() {
-      if (widgetSource === null) widgetSource = fs.readFileSync(path.join(PACKAGE_ROOT, 'widget.js'), 'utf8')
+      // 按修改时间缓存：改 widget.js 后刷新页面即可生效，不必重启 DSH。
+      const file = path.join(PACKAGE_ROOT, 'widget.js')
+      try {
+        const st = fs.statSync(file)
+        if (widgetSource === null || st.mtimeMs !== widgetMtime) {
+          widgetSource = fs.readFileSync(file, 'utf8')
+          widgetMtime = st.mtimeMs
+        }
+      } catch (err) {
+        if (widgetSource === null) throw err
+      }
       return widgetSource
     }
     function readAsset(file) {
