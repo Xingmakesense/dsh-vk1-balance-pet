@@ -88,6 +88,8 @@ for (const p of [
   '/dsh-vk1/hit.mp3', '/dsh-vk1/feed.mp3', '/dsh-vk1/pot_land.mp3', '/dsh-vk1/pot_off.mp3',
   '/dsh-vk1/pat_hand_0.png', '/dsh-vk1/pat_hand_1.png', '/dsh-vk1/pat_hand_2.png',
   '/dsh-vk1/pat_hand_3.png', '/dsh-vk1/pat_hand_4.png',
+  '/dsh-vk1/duck_press.mp3', '/dsh-vk1/duck_release.mp3', '/dsh-vk1/orb.wav', '/dsh-vk1/cost.wav',
+  '/dsh-vk1/last-turn.json', '/dsh-vk1/resources.json', '/dsh-vk1/task_end.wav', '/dsh-vk1/fx1_press.mp3', '/dsh-vk1/fx1_release.mp3', '/dsh-vk1/rua.gif', '/dsh-vk1/skin_dsniang1.png',
 ]) assert.ok(routes.has(p), 'missing route ' + p)
 
 function fakeRes() {
@@ -127,6 +129,25 @@ for (const p of ['/dsh-vk1/widget.js', '/dsh-vk1/expression_11.png', '/dsh-vk1/i
   assert.equal(tapIndexFn(out), out, 'tapIndex 必须去重')
   const noBody = '<html><div id="app"></div></html>'
   assert.ok(tapIndexFn(noBody).endsWith('</script>'))
+}
+
+// ⑤b 每轮消耗接口与资源清单
+{
+  const res = fakeRes()
+  await routes.get('/dsh-vk1/last-turn.json').handler({}, res)
+  const payload = JSON.parse(res.body)
+  assert.equal(payload.ok, true)
+  assert.equal(typeof payload.seq, 'number')
+  assert.equal(typeof payload.amount, 'number')
+
+  const rres = fakeRes()
+  await routes.get('/dsh-vk1/resources.json').handler({}, rres)
+  const rp = JSON.parse(rres.body)
+  assert.equal(rp.ok, true)
+  assert.ok(rp.count >= 19, '资源清单应覆盖随包素材，实际 ' + rp.count)
+  assert.ok(rp.totalBytes > 1000)
+  const files = rp.items.map((it) => it.file)
+  for (const f of ['duck_press.mp3', 'orb.wav', 'expression_11.png']) assert.ok(files.includes(f), '资源缺 ' + f)
 }
 
 // ⑥ 响应头安全：不带 CORS 通配

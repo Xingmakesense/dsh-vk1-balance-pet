@@ -27,6 +27,39 @@ const JSON_HEADERS = {
   'Cache-Control': 'no-store',
 }
 
+// ============================================================================
+// 每轮消耗（turn cost）—— 与 dsh-whale-widget 同一口径
+//   · assistant/message 携带真实 usage，按 (session, turn) 聚合 token
+//   · turn/end 结算该轮：token × 单价 → 人民币，写进 lastTurn
+//   · 客户端轮询 /dsh-vk1/last-turn.json：seq 变了才播「任务结束音」+ 弹本轮消耗气泡
+// 只按**平价**计费（本插件不做峰谷：峰谷显示已按需求移除）。
+// ============================================================================
+const PRICE_FLASH = { hit: 0.02, miss: 1, out: 4 }
+const PRICE_PRO = { hit: 0.15, miss: 4.5, out: 13.5 }
+const PRICING = {
+  'deepseek-v4-pro': PRICE_PRO,
+  'deepseek-v4-flash': PRICE_FLASH,
+  'deepseek-flash': PRICE_FLASH,
+  _default: PRICE_FLASH,
+}
+function priceFor(model) {
+  const m = String(model || '').toLowerCase()
+  for (const key of Object.keys(PRICING)) {
+    if (key === '_default') continue
+    if (m.indexOf(key) !== -1) return PRICING[key]
+  }
+  return PRICING._default
+}
+// 按百万 token 计价的金额，最多 6 位小数
+function costOf(usage, model) {
+  const p = priceFor(model)
+  const input = Number(usage.inputTokens) || 0
+  const cache = Number(usage.cacheReadTokens) || 0
+  const output = Number(usage.outputTokens) || 0
+  const yuan = (cache / 1e6) * p.hit + (input / 1e6) * p.miss + (output / 1e6) * p.out
+  return Math.round(yuan * 1e6) / 1e6
+}
+
 // path -> [file, content-type]
 const ASSET_ROUTES = {
   '/dsh-vk1/expression_11.png': ['expression_11.png', 'image/png'],
@@ -44,6 +77,15 @@ const ASSET_ROUTES = {
   '/dsh-vk1/duck_release.mp3': ['duck_release.mp3', 'audio/mpeg'],
   '/dsh-vk1/orb.wav': ['orb.wav', 'audio/wav'],
   '/dsh-vk1/cost.wav': ['cost.wav', 'audio/wav'],
+  // 任务结束音（每轮结束）：dsh-whale-widget assets/task-end-a.wav，MIT
+  '/dsh-vk1/task_end.wav': ['task_end.wav', 'audio/wav'],
+  // 第三种音效包（D1·D2）与装饰动图 / 备用立绘：全部来自 dsh-whale-widget assets（MIT）
+  '/dsh-vk1/fx1_press.mp3': ['fx1_press.mp3', 'audio/mpeg'],
+  '/dsh-vk1/fx1_release.mp3': ['fx1_release.mp3', 'audio/mpeg'],
+  '/dsh-vk1/rua.gif': ['rua.gif', 'image/gif'],
+  '/dsh-vk1/bubble_petpet.gif': ['bubble_petpet.gif', 'image/gif'],
+  '/dsh-vk1/bubble_money.gif': ['bubble_money.gif', 'image/gif'],
+  '/dsh-vk1/skin_dsniang1.png': ['skin_dsniang1.png', 'image/png'],
   ...Object.fromEntries(Array.from({ length: 5 }, (_, i) =>
     [`/dsh-vk1/pat_hand_${i}.png`, [`pat_hand_${i}.png`, 'image/png']])),
 }
@@ -102,6 +144,56 @@ function apply(root) {
       if (!assetCache.has(file)) assetCache.set(file, fs.readFileSync(path.join(ASSETS, file)))
       return assetCache.get(file)
     }
+
+    let turnAggs = new Map()   // sessionId -> { turn, cost, tokens, lastTs }
+    let lastTurn = null
+    let lastTurnSeq = 0
+    function finalizeTurn(sessionId) {
+      const agg = turnAggs.get(sessionId)
+      if (agg && (agg.cost > 0 || agg.tokens > 0)) {
+        lastTurn = { turn: agg.turn, amount: agg.cost, tokens: agg.tokens, ts: agg.lastTs }
+        lastTurnSeq++
+      }
+      turnAggs.delete(sessionId)
+    }
+    function handleSessionEvent(sessionId, event) {
+      try {
+        const type = event && event.type
+        const d = event && event.data
+        if (!d || typeof d !== 'object') return
+        if (type === 'turn/end') { finalizeTurn(sessionId); return }
+        if (type !== 'assistant/message') return
+        const turn = Number(d.turn)
+        const usage = d.usage
+        if (!usage || !isFinite(turn)) return
+        let agg = turnAggs.get(sessionId)
+        if (!agg || agg.turn !== turn) {
+          if (agg) finalizeTurn(sessionId)
+          agg = { turn, cost: 0, tokens: 0, lastTs: Date.now() }
+          turnAggs.set(sessionId, agg)
+        }
+        const model = d.message && d.message.source ? d.message.source.model : ''
+        const input = Number(usage.inputTokens) || 0
+        const cache = Number(usage.cacheReadTokens) || 0
+        const output = Number(usage.outputTokens) || 0
+        agg.tokens += input + cache + output
+        agg.cost += costOf(usage, model)
+        agg.lastTs = Date.now()
+      } catch (err) {}
+    }
+    try {
+      if (typeof ctx.on === 'function') {
+        // 签名与 dsh-whale-widget 一致：ctx.on('session/event', (session, event) => …)
+        disposers.push(ctx.on('session/event', (session, event) => {
+          const sid = session && session.id ? String(session.id) : 'default'
+          handleSessionEvent(sid, event)
+        }))
+        // 会话销毁时清掉残留聚合，避免内存泄漏
+        disposers.push(ctx.on('session/disposed', (session) => {
+          if (session && session.id) turnAggs.delete(String(session.id))
+        }))
+      }
+    } catch (err) {}
 
     function accountService() {
       try { return typeof ctx.get === 'function' ? ctx.get('deepseekAccount') : null } catch (err) { return null }
@@ -275,6 +367,41 @@ function apply(root) {
         } catch (err) {
           res.writeHead(200, JSON_HEADERS)
           res.end(JSON.stringify({ ok: false, code: 'ERROR', error: String((err && err.message) || err).slice(0, 200), version: VERSION }))
+        }
+      },
+    }))
+
+    // 每轮消耗：客户端轮询这个接口，seq 递增即「刚结束一轮」
+    disposers.push(ctx.webServer.register({
+      kind: 'exact',
+      path: '/dsh-vk1/last-turn.json',
+      handler: (req, res) => {
+        const payload = lastTurn
+          ? { ok: true, seq: lastTurnSeq, turn: lastTurn.turn, amount: lastTurn.amount, tokens: lastTurn.tokens, ts: lastTurn.ts }
+          : { ok: true, seq: 0, amount: 0, tokens: 0, ts: 0 }
+        res.writeHead(200, JSON_HEADERS)
+        res.end(JSON.stringify(payload))
+      },
+    }))
+
+    // 资源管理：列出随包分发的素材与体积（只读，不发文件）
+    disposers.push(ctx.webServer.register({
+      kind: 'exact',
+      path: '/dsh-vk1/resources.json',
+      handler: (req, res) => {
+        try {
+          const provenance = JSON.parse(fs.readFileSync(path.join(PACKAGE_ROOT, 'asset-sources.json'), 'utf8'))
+          const items = provenance.assets.map((a) => ({
+            file: a.file, bytes: a.bytes, source: a.source || '', processing: a.processing || '',
+            mime: a.mime || (a.file.endsWith('.png') ? 'image/png' : a.file.endsWith('.mp3') ? 'audio/mpeg' : 'audio/wav'),
+            width: a.width || null, height: a.height || null,
+          }))
+          const total = items.reduce((sum, it) => sum + (it.bytes || 0), 0)
+          res.writeHead(200, JSON_HEADERS)
+          res.end(JSON.stringify({ ok: true, count: items.length, totalBytes: total, items }))
+        } catch (err) {
+          res.writeHead(200, JSON_HEADERS)
+          res.end(JSON.stringify({ ok: false, error: String((err && err.message) || err) }))
         }
       },
     }))

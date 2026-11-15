@@ -184,6 +184,78 @@
       "mime": "audio/wav",
       "note": "每轮消耗提示音（可作回血音）",
       "processing": "Original upstream bytes, no processing."
+    },
+    {
+      "file": "task_end.wav",
+      "source": "dsh-whale-widget assets/task-end-a.wav",
+      "sourceSha256": null,
+      "sha256": "6228bbe410658a18f06e5cd42cc055570c54905dd371cb971c0a0df88c47c417",
+      "bytes": 319288,
+      "mime": "audio/wav",
+      "note": "任务结束音（每轮结束播放）",
+      "processing": "Original upstream bytes, no processing."
+    },
+    {
+      "file": "fx1_press.mp3",
+      "source": "dsh-whale-widget assets/D1.mp3",
+      "sourceSha256": null,
+      "sha256": "626c0fb5dbfb2529331b98b80fa29961efbcbef6a454b36328481b61d8a0c7be",
+      "bytes": 3294,
+      "mime": "audio/mpeg",
+      "note": "音效组 1·按下",
+      "processing": "Original upstream bytes, no processing."
+    },
+    {
+      "file": "fx1_release.mp3",
+      "source": "dsh-whale-widget assets/D2.mp3",
+      "sourceSha256": null,
+      "sha256": "8327a07da3ec17f42ec6dddec8f6e2862055c7bfa5e15e3908442c517fd0f22d",
+      "bytes": 4232,
+      "mime": "audio/mpeg",
+      "note": "音效组 1·松开",
+      "processing": "Original upstream bytes, no processing."
+    },
+    {
+      "file": "rua.gif",
+      "source": "dsh-whale-widget assets/rua.gif",
+      "sourceSha256": null,
+      "sha256": "0b9dd76db4ea86ce3d3b07a56054ad33f25f6eb7a320472a4810859f183fc332",
+      "bytes": 94643,
+      "mime": "image/gif",
+      "note": "摸头装饰动图",
+      "processing": "Original upstream bytes, no processing."
+    },
+    {
+      "file": "bubble_petpet.gif",
+      "source": "dsh-whale-widget assets/bubble-petpet.gif",
+      "sourceSha256": null,
+      "sha256": "0b9dd76db4ea86ce3d3b07a56054ad33f25f6eb7a320472a4810859f183fc332",
+      "bytes": 94643,
+      "mime": "image/gif",
+      "note": "气泡装饰动图（摸头）",
+      "processing": "Original upstream bytes, no processing."
+    },
+    {
+      "file": "bubble_money.gif",
+      "source": "dsh-whale-widget assets/bubble-money1.gif",
+      "sourceSha256": null,
+      "sha256": "a16c0eb0792014f89ab322d0ece87f635a675fc1f1c0c6a9bf806bfa0e37e28e",
+      "bytes": 495579,
+      "mime": "image/gif",
+      "note": "气泡装饰动图（消费）",
+      "processing": "Resized to 160 px wide, frames re-encoded (86 frames, optimize=True): the original 2.6 MB / full-size GIF was wasteful for a 20 px bubble decoration."
+    },
+    {
+      "file": "skin_dsniang1.png",
+      "source": "dsh-whale-widget assets/DSniang1.png",
+      "sourceSha256": null,
+      "sha256": "dcc456613dbb1102a4b7ef636a8b622371e33b763489d6249c434fb54248ba5c",
+      "bytes": 255988,
+      "mime": "image/png",
+      "note": "备用立绘（610×610，当前不启用皮肤系统）",
+      "processing": "Original upstream bytes, no processing.",
+      "width": 610,
+      "height": 610
     }
   ]
 }

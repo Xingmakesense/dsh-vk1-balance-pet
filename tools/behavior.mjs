@@ -88,9 +88,9 @@ function fixture(saved = {}) {
   const hook = `window.test = {
     state, pat, applyBalance, startCredit, spawnRiceBowl, dropTick, dropPoint, onRiceFed, newBowl,
     updateBowls, makeTick, frame, snapBounds, snapZones, settle, saveAnchor, applyAnchorPos,
-    applySize, setScale, stepToScale, scaleToStep, baseSizePx, setDropInterval, restartDropTimer,
+    applySize, setScale, stepToScale, scaleToStep, baseSizePx, setDropInterval, restartDropTimer, CLICK_JUMP_DUR,
     updateRadar, buildMenu, openMenu, closeMenu,
-    isHit, onDocClick, swallowNextClick, applySoundPack, SOUND_PACKS,
+    isHit, onDocClick, swallowNextClick, applySoundPack, SOUND_PACKS, showBubble, pickReminder, tickBubble,
     getCuePools() { return cuePools },
     ready() { hitReady = true },
     stepValue, STEP_DEFAULT, STEP_MIN, STEP_MAX,
@@ -112,7 +112,7 @@ function fixture(saved = {}) {
   assert.ok(Math.abs(t.state.pending - 1) < 1e-9, '统计到 1 元待扣')
   for (let ms = 1; ms < 3000; ms += 50) t.frame(ms)
   assert.ok(Math.abs(t.state.bookedBal - 9) < 1e-9, '最终结算到 9.00')
-  assert.ok(t.state.usage.used >= 1 - 1e-9, '今日消费按真实变化累计')
+  assert.equal(t.state.usage, null, '今日已用功能已移除')
   t.stop()
 }
 
@@ -235,17 +235,17 @@ function fixture(saved = {}) {
 // ⑦ 尺寸：连续缩放（1–20 级 → 0.6–2.5），基准 min(250, min(vw,vh)*0.28)
 {
   const t = fixture()
-  assert.equal(t.SCALE_STEPS, 20)
+  assert.equal(t.SCALE_STEPS, 10, '滑条上限 10 级')
   assert.equal(t.stepToScale(1), t.SCALE_MIN)
   assert.equal(t.stepToScale(t.SCALE_STEPS), t.SCALE_MAX)
-  assert.equal(t.scaleToStep(1), 5, 'scale 1.0 对应第 5 级（0.6+4*0.1）')
-  // 视口 1200x800 → 基准 min(250, 800*0.28=224) = 224px；scale=1 → 224px
-  assert.equal(t.baseSizePx(1), 224)
+  assert.equal(t.scaleToStep(1), 3, '10 级滑条下 scale 1.0 对应第 3 级')
+  // 视口 1200x800 → 基准 min(250, 800*0.28=224)=224，再乘 2/3 → 约 149px
+  assert.equal(t.baseSizePx(1), Math.round(224 * 2 / 3), '默认 1 倍 = 基准的 2/3')
   assert.equal(t.state.scale, 1)
   t.setScale(2.5)
-  assert.equal(t.state.size, 560, '2.5 倍 → 560px')
+  assert.equal(t.state.size, 373, '2.5 倍 → 约 373px（不再到 560px）')
   t.setScale(0.6)
-  assert.equal(t.state.size, 134, '0.6 倍 → 134px（不低于 122 下限）')
+  assert.equal(t.state.size, 122, '0.6 倍 → 触到 122px 下限')
   t.stop()
 }
 
@@ -310,4 +310,42 @@ function fixture(saved = {}) {
   t.stop()
 }
 
-console.log('behavior: WIDGET OK — 10 groups')
+// ⑪ 气泡与提醒词：{cost} 占位符替换、轮转、队列上限
+{
+  const t = fixture()
+  t.state.reminders = ['本轮 ¥{cost}', '花了 {cost} 元']
+  assert.equal(t.pickReminder('1.50'), '本轮 ¥1.50')
+  assert.equal(t.pickReminder('2.00'), '花了 2.00 元')
+  assert.equal(t.pickReminder('3.00'), '本轮 ¥3.00', '提醒词应轮转')
+  t.state.bubbleOn = true
+  t.showBubble('第一条')
+  t.showBubble('第二条')
+  for (let i = 0; i < 40; i++) t.tickBubble(0.2)
+  assert.equal(typeof t.state.bubbleOn, 'boolean')
+  t.stop()
+}
+
+// ⑫ 单击角色：Q 弹状态可触发（clickJumpT 归零 → 帧循环推进）
+{
+  const t = fixture()
+  assert.equal(t.state.clickJumpT, t.CLICK_JUMP_DUR || 0.42, '初始应为空闲')
+  t.state.clickJumpT = 0
+  t.frame(16); t.frame(32)
+  assert.ok(t.state.clickJumpT > 0, '触发后帧循环应推进弹跳进度')
+  t.stop()
+}
+
+// ⑬ 雷达开启时喂盆：铁盆直接扣在头上（不用等它掉到头顶）
+{
+  const t = fixture()
+  t.state.radarOn = true
+  t.applyBalance(10, false)
+  t.spawnRiceBowl(0, false)
+  const bowl = t.state.bowls[t.state.bowls.length - 1]
+  t.onRiceFed(bowl)
+  const worn = t.state.bowls.filter(function (b) { return b.iron && b.onHead })
+  assert.equal(worn.length, 1, '雷达开启喂食后应有 1 个铁盆戴在头上')
+  t.stop()
+}
+
+console.log('behavior: WIDGET OK — 13 groups')

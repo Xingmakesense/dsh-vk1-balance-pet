@@ -45,6 +45,27 @@ http.createServer((req, res) => {
     res.end(mockBalance())
     return
   }
+  if (url.pathname === '/dsh-vk1/resources.json') {
+    try {
+      const prov = JSON.parse(fs.readFileSync(path.join(root, 'asset-sources.json'), 'utf8'))
+      const items = prov.assets.map((a) => ({
+        file: a.file, bytes: a.bytes, source: a.source || '', processing: a.processing || '',
+        mime: a.mime || 'application/octet-stream', width: a.width || null, height: a.height || null,
+      }))
+      const totalBytes = items.reduce((n, it) => n + (it.bytes || 0), 0)
+      res.writeHead(200, { 'Content-Type': TYPES['.json'], 'Cache-Control': 'no-store' })
+      res.end(JSON.stringify({ ok: true, count: items.length, totalBytes, items }))
+    } catch (err) {
+      res.writeHead(200, { 'Content-Type': TYPES['.json'] })
+      res.end(JSON.stringify({ ok: false, error: String(err && err.message) }))
+    }
+    return
+  }
+  if (url.pathname === '/dsh-vk1/last-turn.json') {
+    res.writeHead(200, { 'Content-Type': TYPES['.json'], 'Cache-Control': 'no-store' })
+    res.end(JSON.stringify({ ok: true, seq: 0, amount: 0, tokens: 0, ts: 0 }))
+    return
+  }
   const rel = url.pathname.replace(/^\/dsh-vk1\//, '')
   const candidates = [path.join(root, 'assets', rel), path.join(root, rel)]
   const file = candidates.find((f) => f.startsWith(root) && fs.existsSync(f))
