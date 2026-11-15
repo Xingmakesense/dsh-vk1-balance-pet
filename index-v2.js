@@ -21,7 +21,12 @@ const ASSETS = path.join(PACKAGE_ROOT, 'assets')
 const BALANCE_URL = 'https://api.deepseek.com/user/balance'
 const BALANCE_TTL_MS = 8000
 const ACCOUNT_TIMEOUT_MS = 5000
-const WIDGET_PATH = '/dsh-vk1/widget.js'
+// 本插件**独占**的路径命名空间：只属于 dsh-vk1-balance-pet，不和任何其它插件共享。
+const NS = '/dsh-vk1-balance-pet'
+// 旧前缀只作为「已加载页面」的过渡别名（缓存里的 widget.js 可能还在请求它），
+// 不用于新代码；数据接口不提供旧别名，避免双写。
+const LEGACY_NS = '/dsh-vk1'
+const WIDGET_PATH = NS + '/widget.js'
 const VERSION = JSON.parse(fs.readFileSync(path.join(PACKAGE_ROOT, 'package.json'), 'utf8')).version
 
 const JSON_HEADERS = {
@@ -63,7 +68,7 @@ function costOf(usage, model) {
 }
 
 // ── 资源声明表（唯一来源）────────────────────────────────────────────
-// key = 对外文件名（/dsh-vk1/<name>），value = 磁盘文件名 + MIME。
+// key = 对外文件名（<NS>/<name>），value = 磁盘文件名 + MIME。
 // 新增素材只改这一张表；/resources.json 也直接由它生成，不会两边漂移。
 const RESOURCES = {
   'expression_11.png': ['expression_11.png', 'image/png'],
@@ -338,10 +343,11 @@ function apply(root) {
 
     // 资源：**每个文件一条 exact 路由**（外部接口保持 v2.3.0 的形态；
     // 文件名与 MIME 仍来自同一张 RESOURCES 表，新增素材只改表即可）。
-    for (const [name, [file, type]] of Object.entries(RESOURCES)) {
+    function registerResource(name, prefix) {
+      const [file, type] = RESOURCES[name]
       disposers.push(ctx.webServer.register({
         kind: 'exact',
-        path: '/dsh-vk1/' + name,
+        path: prefix + '/' + name,
         handler: (req, res) => {
           try {
             const bytes = readAsset(file)
@@ -354,10 +360,14 @@ function apply(root) {
         },
       }))
     }
+    for (const name of Object.keys(RESOURCES)) {
+      registerResource(name, NS)
+      registerResource(name, LEGACY_NS)   // 过渡别名（已加载页面用）
+    }
     // 余额：账号路优先、API key 兜底；恒 200，错误放在 body 里
     disposers.push(ctx.webServer.register({
       kind: 'exact',
-      path: '/dsh-vk1/balance.json',
+      path: NS + '/balance.json',
       handler: async (req, res) => {
         try {
           const payload = await getBalance()
@@ -392,7 +402,7 @@ function apply(root) {
     }
     disposers.push(ctx.webServer.register({
       kind: 'exact',
-      path: '/dsh-vk1/defaults.json',
+      path: NS + '/defaults.json',
       handler: async (req, res) => {
         if (req.method === 'GET' || req.method === 'HEAD') {
           res.writeHead(200, JSON_HEADERS)
@@ -423,7 +433,7 @@ function apply(root) {
     // 每轮消耗：客户端轮询这个接口，seq 递增即「刚结束一轮」
     disposers.push(ctx.webServer.register({
       kind: 'exact',
-      path: '/dsh-vk1/last-turn.json',
+      path: NS + '/last-turn.json',
       handler: (req, res) => {
         const payload = lastTurn
           ? { ok: true, seq: lastTurnSeq, turn: lastTurn.turn, amount: lastTurn.amount, tokens: lastTurn.tokens, ts: lastTurn.ts }
@@ -436,7 +446,7 @@ function apply(root) {
     // 资源管理：列出随包分发的素材与体积（只读，不发文件）
     disposers.push(ctx.webServer.register({
       kind: 'exact',
-      path: '/dsh-vk1/resources.json',
+      path: NS + '/resources.json',
       handler: (req, res) => {
         try {
           const provenance = JSON.parse(fs.readFileSync(path.join(PACKAGE_ROOT, 'asset-sources.json'), 'utf8'))
@@ -463,20 +473,24 @@ function apply(root) {
       },
     }))
 
-    disposers.push(ctx.webServer.register({
-      kind: 'exact',
-      path: WIDGET_PATH,
-      handler: (req, res) => {
-        try {
-          const src = readWidget()
-          res.writeHead(200, { 'Content-Type': 'application/javascript; charset=utf-8', 'Cache-Control': 'no-store' })
-          res.end(src)
-        } catch (err) {
-          res.writeHead(500, { 'Content-Type': 'text/plain; charset=utf-8' })
-          res.end('widget unavailable')
-        }
-      },
-    }))
+    function registerWidget(prefix) {
+      disposers.push(ctx.webServer.register({
+        kind: 'exact',
+        path: prefix + '/widget.js',
+        handler: (req, res) => {
+          try {
+            const src = readWidget()
+            res.writeHead(200, { 'Content-Type': 'application/javascript; charset=utf-8', 'Cache-Control': 'no-store' })
+            res.end(src)
+          } catch (err) {
+            res.writeHead(500, { 'Content-Type': 'text/plain; charset=utf-8' })
+            res.end('widget unavailable')
+          }
+        },
+      }))
+    }
+    registerWidget(NS)
+    registerWidget(LEGACY_NS)   // 过渡别名：已加载页面里的旧 <script src> 仍能拿到脚本
 
     // ③ Web 形态注入（与桌面端的内联行并存，各自去重）
     if (typeof ctx.webServer.tapIndex === 'function') {

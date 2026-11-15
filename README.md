@@ -7,6 +7,15 @@
 以 [YCTS-otree/VK-1](https://github.com/YCTS-otree/VK-1) 的 `dsh-plugin` 为基线改造而来，
 **尺寸、位置与菜单形态照搬 [dsh-whale-widget](https://github.com/MeteorNOX/DeepSeek-Balance-Whale-Widget)**。
 
+## v2.5.0 的变化（相对 v2.4.2）
+
+| 项 | v2.5.0 |
+| --- | --- |
+| 路径命名空间 | 素材与接口全部迁到 `/dsh-vk1-balance-pet/*`，不再与他人共用 `/dsh-vk1/` |
+| 过渡别名 | `/dsh-vk1/*` 只留素材与 widget.js 只读别名；数据接口仅在新命名空间 |
+| localStorage | `dsh-vk1-balance-pet-*`，首次读取自动从旧键迁移 |
+| IndexedDB | 库名 `dsh-vk1-balance-pet-sounds` |
+
 ## v2.4.2 的变化（相对 v2.4.1）
 
 | 项 | v2.4.2 |

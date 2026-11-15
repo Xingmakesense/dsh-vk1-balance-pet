@@ -45,7 +45,9 @@
     // path ends in our route is treated as ours. It can in principle misattribute an
     // unrelated script served at the same path, which is why identity normally comes from
     // currentScript instead.
-    return /dsh-vk1\/widget\.js$/.test(path)
+    if (path.slice(-10) !== '/widget.js') return false
+    // 新旧两个前缀都算自己（旧前缀是过渡别名）
+    return path.indexOf('/dsh-vk1-balance-pet/') >= 0 || path.indexOf('/dsh-vk1/') >= 0
   }
   function showFatal(text) {
     try {
@@ -81,7 +83,8 @@
   }
   window.addEventListener('error', onWidgetError)
 
-  var BASE = '/dsh-vk1'
+  // 本插件独占的路径命名空间（与宿主 index-v2.js 的 NS 一致）。
+  var BASE = '/dsh-vk1-balance-pet'
   var EXPR_URL = {
     happy: BASE + '/expression_11.png',
     nervous: BASE + '/expression_22.png',
@@ -125,7 +128,7 @@
   var customSkinDb = null
   function openSkinDb(cb) {
     try {
-      var req = indexedDB.open('dsh-vk1-sounds', 2)
+      indexedDB.open(SKIN_DB_NAME, 2)
       req.onupgradeneeded = function () {
         var db = req.result
         if (!db.objectStoreNames.contains('clips')) db.createObjectStore('clips', { keyPath: 'id' })
@@ -192,7 +195,7 @@
   // 建 DOM 时 state 还没声明，这里直接读持久化的皮肤 id
   function bootSkinId() {
     try {
-      var o = JSON.parse(localStorage.getItem(OPTIONS_KEY) || 'null')
+      var o = JSON.parse(lsGetMigrated(OPTIONS_KEY, 'dsh-vk1-options') || 'null')
       if (o && typeof o.skin === 'string' && SKINS[o.skin]) return o.skin
     } catch (err) {}
     return 'vk1'
@@ -303,11 +306,28 @@
   var IRON_FADE = 0.45
   var BTN_GRACE_MS = 1500
 
-  var POS_KEY = 'dsh-vk1-pos'
-  var SIZE_KEY = 'dsh-vk1-size'
-  var GAP_KEY = 'dsh-vk1-gap'
-  var SOUND_KEY = 'dsh-vk1-sound'
-  var OPTIONS_KEY = 'dsh-vk1-options'
+  // 存储键也走独立命名空间（旧的 'dsh-vk1-*' 与社区插件重名，会互相覆盖）。
+  // 首次读取时若新键不存在、旧键存在，就搬过来并删掉旧的。
+  var NS_PREFIX = 'dsh-vk1-balance-pet-'
+  // IndexedDB 库名同样独立（旧的 'dsh-vk1-sounds' 与社区插件重名）
+  var SKIN_DB_NAME = NS_PREFIX + 'sounds'
+  function lsGetMigrated(newKey, oldKey) {
+    try {
+      var v = localStorage.getItem(newKey)
+      if (v !== null) return v
+      var old = localStorage.getItem(oldKey)
+      if (old !== null) {
+        try { localStorage.setItem(newKey, old); localStorage.removeItem(old) } catch (e) {}
+        return old
+      }
+    } catch (e) {}
+    return null
+  }
+  var POS_KEY = NS_PREFIX + 'pos'
+  var SIZE_KEY = NS_PREFIX + 'size'
+  var GAP_KEY = NS_PREFIX + 'gap'
+  var SOUND_KEY = NS_PREFIX + 'sound'
+  var OPTIONS_KEY = NS_PREFIX + 'options'
 
   function round4(v) { return Math.round(v * 10000) / 10000 }
   function clamp(v, lo, hi) { return v < lo ? lo : (v > hi ? hi : v) }
@@ -2000,7 +2020,7 @@
   //      四边吸附区宽度 + 翻转线）。判定点与它一致：图像中心 x 判左右与翻转，
   //      盒中心 y 判顶，图像中心 y 判底；挂件的「图像」就是整个 1024 方块，所以
   //      图像中心 = 盒中心。
-  var SNAP_KEY = 'dsh-vk1-snap'
+  var SNAP_KEY = NS_PREFIX + 'snap'
   var SNAP_VER = 3
   var SNAP_DEFAULTS = { mode: 'ratio', ratio: { L: 10, T: 0, R: 10, B: 15, F: 50 }, px: { L: 80, T: 0, R: 80, B: 80, F: -1 } }
   var snapConfig = null
@@ -2033,7 +2053,7 @@
   function loadSnapConfig() {
     snapConfig = cloneSnap(SNAP_DEFAULTS)
     try {
-      var raw = localStorage.getItem(SNAP_KEY)
+      var raw = lsGetMigrated(SNAP_KEY, 'dsh-vk1-snap')
       if (raw) {
         var d = JSON.parse(raw)
         if (d && d.v === SNAP_VER) {
@@ -2147,7 +2167,7 @@
   }
   function applyAnchorPos() {
     try {
-      var a = JSON.parse(localStorage.getItem(POS_KEY) || 'null')
+      var a = JSON.parse(lsGetMigrated(POS_KEY, 'dsh-vk1-pos') || 'null')
       if (!a || a.v !== 2 || (a.hAnchor !== 'left' && a.hAnchor !== 'right') || typeof a.hDist !== 'number' ||
           (a.vAnchor !== 'top' && a.vAnchor !== 'bottom') || typeof a.vDist !== 'number') return false
       var vp = viewport()
@@ -3245,7 +3265,7 @@
   function initSoundLibrary() {
     try {
       activeClips = JSON.parse(localStorage.getItem('dsh-vk1-active-clips') || '{}') || {}
-      var request = indexedDB.open('dsh-vk1-sounds', 2)
+      indexedDB.open(SKIN_DB_NAME, 2)
       request.onupgradeneeded = function (ev) {
         var db = request.result
         if (!db.objectStoreNames.contains('clips')) db.createObjectStore('clips', { keyPath: 'id' })
@@ -3387,7 +3407,7 @@
 
   try {
     // 尺寸存的是 { v:2, scale }；早期版本存的是像素字符串，按公式反推 scale 兼容一次。
-    var rawSize = localStorage.getItem(SIZE_KEY)
+    var rawSize = lsGetMigrated(SIZE_KEY, 'dsh-vk1-size')
     if (rawSize) {
       var parsed = JSON.parse(rawSize)
       if (parsed && parsed.v === 2 && isFinite(Number(parsed.scale))) {
@@ -3402,14 +3422,14 @@
       }
     }
     state.size = baseSizePx(state.scale)
-    var g = JSON.parse(localStorage.getItem(GAP_KEY) || 'null')
+    var g = JSON.parse(lsGetMigrated(GAP_KEY, 'dsh-vk1-gap') || 'null')
     if (g) { state.scrollGapOn = !!g.on; state.scrollGapPx = typeof g.px === 'number' && g.px > 0 ? Math.round(g.px) : 0 }
-    var s = JSON.parse(localStorage.getItem(SOUND_KEY) || 'null')
+    var s = JSON.parse(lsGetMigrated(SOUND_KEY, 'dsh-vk1-sound') || 'null')
     if (s) {
       state.soundOn = s.on !== false
       state.volume = typeof s.vol === 'number' && s.vol >= 0 && s.vol <= 100 ? s.vol : 80
     }
-    var options = JSON.parse(localStorage.getItem(OPTIONS_KEY) || 'null')
+    var options = JSON.parse(lsGetMigrated(OPTIONS_KEY, 'dsh-vk1-options') || 'null')
     if (options) {
       ;['fxBowl', 'fxPat', 'fxHurt'].forEach(function (key) { state[key] = options[key] !== false })
       if (typeof options.radarOn === 'boolean') state.radarOn = options.radarOn

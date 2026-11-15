@@ -1,5 +1,21 @@
 # Changelog
 
+## v2.5.0 - 2026-11-15
+
+### Changed
+- **独占路径命名空间**：所有素材与接口从 `/dsh-vk1/*` 迁到 **`/dsh-vk1-balance-pet/*`**。
+  旧前缀 `dsh-vk1` 是社区插件（YCTS 那版 `dsh-vk1-balance-widget`）用的名字，两边共用一个命名空间容易互相覆盖。
+  现在本插件的 24 个素材与 `widget.js` 只在自己的命名空间下分发，不与任何其它插件共享路径。
+- **过渡别名**：`/dsh-vk1/*` 下**仅**保留素材与 `widget.js` 的只读别名，供已加载页面里的旧 `<script src>` 与旧缓存图片使用；
+  数据接口（`balance/defaults/last-turn/resources`）**只**在新命名空间，旧前缀下访问会 404 —— 避免新旧两套写接口并存。
+- **localStorage 键独立**：`dsh-vk1-pos|size|gap|sound|options|snap` → `dsh-vk1-balance-pet-*`。
+  旧键与新命名空间之外的插件重名，会被互相覆盖；首次读取时自动从旧键**迁移**并删除旧键，设置不丢。
+- **IndexedDB 库名独立**：`dsh-vk1-sounds` → `dsh-vk1-balance-pet-sounds`（避免与社区插件的音效库同名）。
+- 插件识别逻辑（`isOurs`）同时认新旧两个前缀，旧的错误提示仍然可被归类到本插件。
+
+### Notes
+- 外部接口形态未变：仍是每个文件一条 `exact` 路由；变的只是前缀。加载通道仍是 `webserver/index-inject` 内联 script 行 + `tapIndex`。
+
 ## v2.4.2 - 2026-11-15
 
 ### Fixed
