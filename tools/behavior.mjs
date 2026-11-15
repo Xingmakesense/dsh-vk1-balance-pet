@@ -56,7 +56,13 @@ function fixture(saved = {}) {
     getElementById() { return null },
     currentScript: { src: 'http://localhost/dsh-vk1/widget.js' },
   }
-  class Audio extends Element { constructor() { super('audio') } play() { return Promise.resolve() } pause() {} load() {} }
+  class Audio extends Element {
+    constructor(url) { super('audio'); this.src = url || '' }
+    play() { return Promise.resolve() }
+    pause() {}
+    load() {}
+    removeAttribute(name) { if (name === 'src') this.src = ''; delete this[name] }
+  }
   const ctx = vm.createContext({
     document,
     Audio,
@@ -84,9 +90,11 @@ function fixture(saved = {}) {
     updateBowls, makeTick, frame, snapBounds, snapZones, settle, saveAnchor, applyAnchorPos,
     applySize, setScale, stepToScale, scaleToStep, baseSizePx, setDropInterval, restartDropTimer,
     updateRadar, buildMenu, openMenu, closeMenu,
-    isHit, onDocClick, swallowNextClick,
+    isHit, onDocClick, swallowNextClick, applySoundPack, SOUND_PACKS,
+    getCuePools() { return cuePools },
     ready() { hitReady = true },
-    STEP, DROP_INTERVAL_DEFAULT_S, DROP_INTERVAL_MIN_S, DROP_INTERVAL_MAX_S, SCALE_MIN, SCALE_MAX, SCALE_STEPS,
+    stepValue, STEP_DEFAULT, STEP_MIN, STEP_MAX,
+    DROP_INTERVAL_DEFAULT_S, DROP_INTERVAL_MIN_S, DROP_INTERVAL_MAX_S, SCALE_MIN, SCALE_MAX, SCALE_STEPS,
     snapConfig, saveSnapConfig, loadSnapConfig, refreshFlip, stop
   };`
   vm.runInContext(source.replace(
@@ -98,13 +106,27 @@ function fixture(saved = {}) {
 // ① 扣费步进 = 0.5 元
 {
   const t = fixture()
-  assert.equal(t.STEP, 0.5, '扣费步进必须是 0.5 元')
+  assert.equal(t.stepValue(), 0.5, '默认扣费步长 0.5 元')
   t.applyBalance(10, false)
   t.applyBalance(9, false) // 掉了 1 元 → 两个 0.5 步
   assert.ok(Math.abs(t.state.pending - 1) < 1e-9, '统计到 1 元待扣')
   for (let ms = 1; ms < 3000; ms += 50) t.frame(ms)
   assert.ok(Math.abs(t.state.bookedBal - 9) < 1e-9, '最终结算到 9.00')
   assert.ok(t.state.usage.used >= 1 - 1e-9, '今日消费按真实变化累计')
+  t.stop()
+}
+
+// ①b 自定义扣费步长：0.01–100 元，夹取越界值
+{
+  const t = fixture()
+  t.applyBalance(10, false)
+  t.state.stepYuan = 2
+  assert.equal(t.stepValue(), 2)
+  t.applyBalance(3, false)          // 掉 7 元 → 待扣 7
+  for (let ms = 1; ms < 6000; ms += 50) t.frame(ms)
+  assert.ok(Math.abs(t.state.bookedBal - 3) < 1e-9, '按 2 元步长也要结算到 3.00')
+  t.state.stepYuan = 0
+  assert.equal(t.stepValue(), 0.5, '非法步长回落 0.5')
   t.stop()
 }
 
@@ -271,4 +293,21 @@ function fixture(saved = {}) {
   t.stop()
 }
 
-console.log('behavior: WIDGET OK — 9 groups')
+// ⑩ 音效包切换：切到 duck / orb 后四路音效池的源必须跟着换
+{
+  const t = fixture()
+  assert.equal(t.state.soundPack, 'default')
+  const src = () => (t.getCuePools()[0].pool[0] || {}).src || ''
+  t.applySoundPack('duck')
+  assert.equal(t.state.soundPack, 'duck')
+  assert.ok(src().includes('duck_press.mp3'), 'duck 包应使用 duck_press.mp3，实际 ' + src())
+  t.applySoundPack('orb')
+  assert.ok(src().includes('orb.wav'), 'orb 包应使用 orb.wav，实际 ' + src())
+  t.applySoundPack('default')
+  assert.ok(src().includes('hit.mp3'), 'default 包应回到 hit.mp3')
+  t.applySoundPack('nope')
+  assert.equal(t.state.soundPack, 'default', '未知音效包回落到 default')
+  t.stop()
+}
+
+console.log('behavior: WIDGET OK — 10 groups')

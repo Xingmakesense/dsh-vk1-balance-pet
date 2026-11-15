@@ -144,6 +144,46 @@
       "width": 256,
       "height": 256,
       "processing": "Original upstream bytes, no processing."
+    },
+    {
+      "file": "duck_press.mp3",
+      "source": "github.com/MeteorNOX/DeepSeek-Balance-Whale-Widget assets/Ya1.mp3",
+      "sourceSha256": null,
+      "sha256": "0ad8f934ae5fa3cbd42745e086a56aa6532766618c6a620b860a795bdc7689f9",
+      "bytes": 6370,
+      "mime": "audio/mpeg",
+      "note": "小黄鸭·按下（-1 音效槽可作掉血音）",
+      "processing": "Original upstream bytes, no processing."
+    },
+    {
+      "file": "duck_release.mp3",
+      "source": "…/assets/Ya2.mp3",
+      "sourceSha256": null,
+      "sha256": "1a8998077e5e306c3088bb442ce36617261dd58200754f457469a520801c565b",
+      "bytes": 2976,
+      "mime": "audio/mpeg",
+      "note": "小黄鸭·松开（可作回血音）",
+      "processing": "Original upstream bytes, no processing."
+    },
+    {
+      "file": "orb.wav",
+      "source": "…/assets/minecraft-exp-orb.wav",
+      "sourceSha256": null,
+      "sha256": "aa96e35a3101b46de496271858e87214e7821a0a85316f6be1a001113ddec619",
+      "bytes": 59488,
+      "mime": "audio/wav",
+      "note": "Minecraft 经验球（可作掉血音）",
+      "processing": "Original upstream bytes, no processing."
+    },
+    {
+      "file": "cost.wav",
+      "source": "…/assets/cost-default.wav",
+      "sourceSha256": null,
+      "sha256": "6a012baa5a035a07de4cbb67c5c41aa34fdd8086bd15543610643680282e5ebb",
+      "bytes": 248876,
+      "mime": "audio/wav",
+      "note": "每轮消耗提示音（可作回血音）",
+      "processing": "Original upstream bytes, no processing."
     }
   ]
 }

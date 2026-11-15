@@ -96,9 +96,37 @@
   var FEED_SOUND = BASE + '/feed.mp3'
   var BALANCE_URL = BASE + '/balance.json'
 
+  // 音效包（素材来自 dsh-whale-widget 的 assets，MIT）：
+  //   default —— 上游 VK-1 的四个音效
+  //   duck    —— 小黄鸭：按下 Ya1 / 松开 Ya2（本插件里映射为「掉血 / 回血」）
+  //   orb     —— Minecraft 经验球（掉血）+ 每轮消耗提示音（回血）
+  var SOUND_PACKS = {
+    default: {
+      name: '\u63A7\u5236\u53F0\u539F\u751F',
+      hit: HIT_SOUND, feed: FEED_SOUND,
+      land: BASE + '/pot_land.mp3', off: BASE + '/pot_off.mp3',
+    },
+    duck: {
+      name: '\u5C0F\u9EC4\u9E2D',
+      hit: BASE + '/duck_press.mp3', feed: BASE + '/duck_release.mp3',
+      land: BASE + '/pot_land.mp3', off: BASE + '/pot_off.mp3',
+    },
+    orb: {
+      name: '\u7ECF\u9A8C\u7403',
+      hit: BASE + '/orb.wav', feed: BASE + '/cost.wav',
+      land: BASE + '/pot_land.mp3', off: BASE + '/pot_off.mp3',
+    },
+  }
+
   // ---- constants ported from dsh_pet.ps1 ----
-  // 扣费提示步长：每消耗 0.5 元提示一次（不再逐分）。
-  var STEP = 0.5
+  // 扣费提示步长：默认每消耗 0.5 元提示一次；设置页可改成 0.01–100 元（两位小数）。
+  var STEP_DEFAULT = 0.5
+  var STEP_MIN = 0.01
+  var STEP_MAX = 100
+  function stepValue() {
+    var v = Number(state && state.stepYuan)
+    return isFinite(v) && v >= STEP_MIN ? Math.round(v * 100) / 100 : STEP_DEFAULT
+  }
   var CUE_GAP = 0.2
   var MAX_CUES_PER_POLL = 40
   // 饭盆掉落：默认每 60 秒随机掉一盆（菜单里可自定义 5–3600 秒），
@@ -193,10 +221,12 @@
     '.dshvk1-flash{position:absolute;left:0;top:0;width:100%;height:100%;background:' + FLASH_COLOR + ';opacity:0;pointer-events:none;' +
       '-webkit-mask-size:100% 100%;-webkit-mask-repeat:no-repeat;mask-size:100% 100%;mask-repeat:no-repeat}',
     '.dshvk1-panel{position:absolute;left:0;top:0;transform-origin:0 0;pointer-events:none;text-align:center}',
-    '.dshvk1-label{position:absolute;left:0;right:0;top:4%;height:31.5%;display:flex;align-items:center;justify-content:center;' +
-      'font-size:calc(var(--dshvk1-ph) * 0.21);font-weight:700;letter-spacing:.02em;color:rgba(158,182,224,.92);' +
+    '.dshvk1-label{position:absolute;left:0;right:0;top:1%;height:26%;display:flex;align-items:center;justify-content:center;' +
+      'font-size:calc(var(--dshvk1-ph) * 0.18);font-weight:700;letter-spacing:.02em;color:rgba(158,182,224,.92);' +
       'text-shadow:calc(var(--dshvk1-ph) * 0.005) calc(var(--dshvk1-ph) * 0.005) 0 rgba(0,0,0,.59);white-space:nowrap}',
-    '.dshvk1-amount{position:absolute;left:0;right:0;top:44%;display:flex;align-items:center;justify-content:center;white-space:nowrap}',
+    // 数字在平板内**垂直+水平居中**：满高 flex 居中，再用 margin-top 抵消标签占位。
+    '.dshvk1-amount{position:absolute;left:0;right:0;top:0;bottom:0;display:flex;align-items:center;justify-content:center;' +
+      'white-space:nowrap;margin-top:calc(var(--dshvk1-ph) * 0.11)}',
     '.dshvk1-cur{font-size:calc(var(--dshvk1-ph) * 0.27);font-weight:700;color:rgba(158,184,230,.92);' +
       'text-shadow:calc(var(--dshvk1-ph) * 0.005) calc(var(--dshvk1-ph) * 0.005) 0 rgba(0,0,0,.63)}',
     '.dshvk1-num{font-size:calc(var(--dshvk1-ph) * 0.48);font-weight:800;color:#f0f6ff;line-height:1;' +
@@ -322,7 +352,8 @@
     pendingStep: 0,
     dueGap: 0,
     demoLeft: 0,
-    demoAmount: STEP,
+    demoAmount: STEP_DEFAULT,
+    stepYuan: STEP_DEFAULT,
     hits: [],
     floaters: [],
     hearts: [],
@@ -347,11 +378,10 @@
     grab: null,
     menuOpen: false,
     fxBowl: true, fxPat: true, fxHurt: true,
+    soundPack: 'default',
     theme: 'auto',
     cueVolumes: [100, 100, 100, 100],
     usage: null,
-    peakMode: false, peakHold: 5,
-    cloudOffset: 0,
     hostVersion: '',
     lastTabletClick: null,
   }
@@ -427,6 +457,20 @@
   var offPool = makePool(BASE + '/pot_off.mp3', 2)
   offPool.cue = 3
   var cuePools = [hitPool, feedPool, landPool, offPool]
+  function currentPack() { return SOUND_PACKS[state.soundPack] || SOUND_PACKS.default }
+  // 切换音效包：重建四个池（掉血 / 回血 / 铁盆落头 / 取盆），并保留分项音量。
+  function applySoundPack(packId) {
+    state.soundPack = SOUND_PACKS[packId] ? packId : 'default'
+    var pack = currentPack()
+    try { cuePools.forEach(function (p) { stopPool(p) }) } catch (err) {}
+    hitPool = makePool(pack.hit, 4)
+    feedPool = makePool(pack.feed, 2)
+    landPool = makePool(pack.land, 2)
+    offPool = makePool(pack.off, 2)
+    feedPool.cue = 1; landPool.cue = 2; offPool.cue = 3
+    cuePools = [hitPool, feedPool, landPool, offPool]
+    saveOptions()
+  }
   function playPool(p) {
     if (!state.soundOn || state.volume <= 0 || !p.pool.length || stopped) return
     try {
@@ -1096,7 +1140,7 @@
         }
         if (owed >= state.pendingStep - 1e-9) owed = round4(owed - state.pendingStep)
         else owed = 0
-        var cap = STEP * MAX_CUES_PER_POLL
+        var cap = stepValue() * MAX_CUES_PER_POLL
         if (owed > cap) owed = cap
         state.pending = owed < 1e-9 ? 0 : owed
         if (state.pending > 1e-9 && state.dueGap <= 0) state.dueGap = 0
@@ -1132,7 +1176,6 @@
       .then(function (d) {
         if (stopped) return
         if (d && d.ok && d.totalBalance != null && isFinite(Number(d.totalBalance))) {
-          if (d.serverTime && isFinite(Date.parse(d.serverTime))) state.cloudOffset = Date.parse(d.serverTime) - Date.now()
           if (d.version) state.hostVersion = String(d.version)
           applyBalance(Number(d.totalBalance), !!snap)
         }
@@ -1210,7 +1253,7 @@
     if (state.dueGap > 0) state.dueGap -= dt
     var take = 0
     if (state.dueGap <= 0 && state.pendingStep <= 0) {
-      if (state.pending >= STEP - 1e-9) take = STEP
+      if (state.pending >= stepValue() - 1e-9) take = stepValue()
       else if (state.pending > 1e-9) take = Math.round(state.pending * 100) / 100
     }
     if (take > 0) {
@@ -1755,18 +1798,6 @@
       return
     }
     if (isHead) state.lastHeadClick = { t: now, x: e.clientX, y: e.clientY }
-    if (onTablet(e.clientX, e.clientY)) {
-      var tc = state.lastTabletClick
-      if (tc && now - tc.t < 400 && Math.hypot(e.clientX - tc.x, e.clientY - tc.y) < 24) {
-        state.peakMode = !state.peakMode
-        state.peakHold = 5
-        state.lastTabletClick = null
-        updateTablet()
-        e.preventDefault(); e.stopPropagation()
-        return
-      }
-      state.lastTabletClick = { t: now, x: e.clientX, y: e.clientY }
-    }
 
     var bowl = bowlAt(e.clientX, e.clientY)
     if (bowl) {
@@ -1887,6 +1918,8 @@
     if (state.h === null && state.v === null && applyAnchorPos()) return
     settle()
   }
+  // 菜单外单击关闭：缺这条就只能靠 Esc 或再点 ⋯ 关闭。
+  document.addEventListener('pointerdown', onDocMenuClose, true)
   document.addEventListener('pointerdown', onDown, true)
   document.addEventListener('pointermove', onCursor, true)
   document.addEventListener('contextmenu', onContextMenu, true)
@@ -2176,11 +2209,6 @@
     hands[frameIndex].style.transform = mirrored() ? 'scaleX(-1) translateX(-100%)' : ''
   }
 
-  var clockEl = document.createElement('div')
-  clockEl.style.cssText = 'position:absolute;inset:5% 0;display:none;flex-direction:column;justify-content:space-evenly;align-items:center;color:#ecf2fc;font-weight:bold;white-space:nowrap;font-size:calc(var(--dshvk1-ph) * .19)'
-  var clockLines = [document.createElement('div'), document.createElement('div'), document.createElement('div')]
-  clockLines.forEach(function (line) { clockEl.appendChild(line) })
-  panel.appendChild(clockEl)
   function usageDay() {
     var d = new Date()
     return d.getFullYear() + '-' + (d.getMonth() + 1) + '-' + d.getDate()
@@ -2208,39 +2236,17 @@
     var v = (ax * (ly - q[0].y) - ay * (lx - q[0].x)) / det
     return u >= 0 && u <= 1 && v >= 0 && v <= 1
   }
-  function updateTablet() {
-    if (!clockEl) return
-    labelEl.style.display = state.peakMode ? 'none' : ''
-    amountEl.style.display = state.peakMode ? 'none' : ''
-    clockEl.style.display = state.peakMode ? 'flex' : 'none'
-    if (!state.peakMode) return
-    var bj = new Date(Date.now() + state.cloudOffset + 8 * 3600000)
-    var seconds = bj.getUTCHours() * 3600 + bj.getUTCMinutes() * 60 + bj.getUTCSeconds()
-    var off = seconds >= 1800 && seconds < 30600
-    var target = off ? 30600 : (seconds < 1800 ? 1800 : 88200)
-    function pad(n) { return String(n).padStart(2, '0') }
-    var left = target - seconds
-    clockLines[0].textContent = pad(bj.getUTCHours()) + ':' + pad(bj.getUTCMinutes()) + ':' + pad(bj.getUTCSeconds())
-    clockLines[1].textContent = off ? '梁文谷' : '梁文峰'
-    clockLines[1].style.color = off ? '#96e2aa' : '#f0be78'
-    clockLines[2].textContent = (off ? '距峰时 ' : '距谷时 ') + Math.floor(left / 3600) + ':' + pad(Math.floor(left / 60) % 60) + ':' + pad(left % 60)
-    panel.title = '北京时间；沿用上游 00:30–08:30 谷时规则，不含节假日调整'
-  }
-  function tickTablet(dt) {
-    if (!state.peakMode) return
-    var p = pat.pointer
-    if (p && charHitAt(p.x, p.y)) state.peakHold = 5
-    else if (chargingBusy()) state.peakHold = 1
-    else state.peakHold -= dt
-    if (state.peakHold <= 0) state.peakMode = false
-    updateTablet()
-  }
+  // 峰谷（梁文峰 / 梁文谷）显示已按需求移除：平板只显示余额，不再有时钟与倒计时。
+  function updateTablet() {}
+  function tickTablet(dt) {}
+
   function saveOptions() {
     try {
       localStorage.setItem(OPTIONS_KEY, JSON.stringify({
         fxBowl: state.fxBowl, fxPat: state.fxPat, fxHurt: state.fxHurt,
         theme: state.theme, cueVolumes: state.cueVolumes,
         radarOn: state.radarOn, dropIntervalSec: state.dropIntervalSec,
+        soundPack: state.soundPack, stepYuan: state.stepYuan,
       }))
     } catch (e) {}
   }
@@ -2453,6 +2459,20 @@
       row('\u907F\u8BA9\u6EDA\u52A8\u6761', checkbox(state.scrollGapOn, setScrollGapOn))
       row('\u907F\u8BA9\u5BBD\u5EA6\uFF08px\uFF09', numberBox(state.scrollGapPx, 0, 100, 1, setScrollGapPx))
     } else if (settingsPage === 'sound') {
+      section('\u6263\u8D39\u63D0\u793A')
+      row('\u6B65\u957F\uFF08\u6BCF\u8017 \u00A5X \u63D0\u793A\u4E00\u6B21\uFF09', numberBox(state.stepYuan, STEP_MIN, STEP_MAX, 0.01, function (v) {
+        state.stepYuan = Math.round(clamp(v, STEP_MIN, STEP_MAX) * 100) / 100
+        saveOptions()
+        renderSettings()
+      }))
+      hint('\u9ED8\u8BA4 0.5 \u5143\uFF1B\u8DDF\u4E0A\u6E38\u684C\u5BA0\u4E00\u6837\u6309\u6B65\u957F\u5206\u62CD\u63D0\u793A\uFF0C\u5C3E\u5DEE\u6309\u5B9E\u9645\u5DEE\u989D\u8865\u4E00\u62CD\u3002')
+      section('\u97F3\u6548\u5305')
+      var packWrap = element('div', null, content, 'dshvk1-actions')
+      Object.keys(SOUND_PACKS).forEach(function (id) {
+        var b = action(packWrap, SOUND_PACKS[id].name, function () { applySoundPack(id); renderSettings() })
+        b.setAttribute('aria-selected', String(state.soundPack === id))
+      })
+      hint('\u97F3\u6548\u5305\u6765\u81EA dsh-whale-widget \uFF08MIT\uFF09\uFF1B\u5207\u6362\u540E\u56DB\u8DEF\u97F3\u6548\u7ACB\u5373\u6362\u6E90\u3002')
       section('\u603B\u5F00\u5173')
       row('\u5F00\u542F\u58F0\u97F3', checkbox(state.soundOn, function (on) { state.soundOn = on; saveSound(); if (!on) stopPlaying() }))
       row('\u603B\u97F3\u91CF', rangeBox(state.volume, 0, 100, 1, function (v) { state.volume = v; saveSound() }))
@@ -2464,11 +2484,11 @@
     } else if (settingsPage === 'demo') {
       hint('\u53EA\u64AD\u52A8\u753B\uFF08\u7EA2\u95EA / \u9707\u52A8 / \u98D8\u5B57 / \u97F3\u6548 / \u6389\u76C6\uFF09\uFF0C\u4E0D\u6539\u5E73\u677F\u6570\u5B57\uFF0C\u4E5F\u4E0D\u8BA1\u5165\u4ECA\u65E5\u6D88\u8D39\u3002')
       var demoActions = element('div', null, content, 'dshvk1-actions')
-      action(demoActions, '\u5355\u6B21\u6263\u8D39', function () { makeTick(STEP, true) })
-      action(demoActions, '\u5341\u6B21\u6263\u8D39', function () { state.demoAmount = STEP; state.demoLeft = 10 })
+      action(demoActions, '\u5355\u6B21\u6263\u8D39', function () { makeTick(stepValue(), true) })
+      action(demoActions, '\u5341\u6B21\u6263\u8D39', function () { state.demoAmount = stepValue(); state.demoLeft = 10 })
       var count = 10, amount = 3
       row('\u81EA\u5B9A\u4E49\u6263\u8D39\u6B21\u6570', numberBox(count, 1, 10000, 1, function (v) { count = v }))
-      action(content, '\u6F14\u793A\u81EA\u5B9A\u4E49\u6263\u8D39', function () { state.demoAmount = STEP; state.demoLeft = count })
+      action(content, '\u6F14\u793A\u81EA\u5B9A\u4E49\u6263\u8D39', function () { state.demoAmount = stepValue(); state.demoLeft = count })
       row('\u5145\u503C\u91D1\u989D\uFF08\u5143\uFF09', numberBox(amount, 0.01, 1000000, 0.01, function (v) { amount = v }))
       var demoCredit = element('div', null, content, 'dshvk1-actions')
       action(demoCredit, '\u6A21\u62DF\u5145\u503C 3 \u5143', function () { startCredit(3, true); closeSettingsPanel() })
@@ -2486,15 +2506,14 @@
         state.usage = { day: usageDay(), base: round4(state.real + v), topup: 0, last: state.real, used: v }
         saveUsage()
       }))
-      section('\u5CE1\u8C37\u65F6\u949F')
-      var aboutActions = element('div', null, content, 'dshvk1-actions')
-      action(aboutActions, '\u663E\u793A\u5CE1\u8C37\u65F6\u949F', function () { state.peakMode = true; state.peakHold = 5; updateTablet(); closeSettingsPanel() })
-      hint('\u4E5F\u53EF\u53CC\u51FB\u5E73\u677F\u3002\u6CBF\u7528\u5317\u4EAC\u65F6\u95F4 00:30\u201308:30 \u8C37\u65F6\u89C4\u5219\u3002')
     } else {
       renderLibrary()
     }
   }
 
+  // 四路音效槽的显示名：与 DEFAULT_SOUNDS / state.cueVolumes / activeClips 的索引一一对应。
+  // （v2.0.0 重构设置页时这一行被误删，导致声音页 ReferenceError，v2.0.1 修复。）
+  var CUE_NAMES = ['\u6389\u8840\u97F3\u6548', '\u56DE\u8840\u97F3\u6548', '\u94C1\u76C6\u843D\u5934\u97F3\u6548', '\u53CC\u51FB\u53D6\u76C6\u97F3\u6548']
   var DEFAULT_SOUNDS = [HIT_SOUND, FEED_SOUND, BASE + '/pot_land.mp3', BASE + '/pot_off.mp3']
   var soundDb = null, audioContext = null, previewAudio = null, previewUrl = null
   var clips = [], activeClips = {}, libraryStatus = ''
@@ -2702,6 +2721,8 @@
     if (options) {
       ;['fxBowl', 'fxPat', 'fxHurt'].forEach(function (key) { state[key] = options[key] !== false })
       if (typeof options.radarOn === 'boolean') state.radarOn = options.radarOn
+      if (typeof options.soundPack === 'string' && SOUND_PACKS[options.soundPack]) state.soundPack = options.soundPack
+      if (isFinite(Number(options.stepYuan))) state.stepYuan = Math.round(clamp(Number(options.stepYuan), STEP_MIN, STEP_MAX) * 100) / 100
       if (isFinite(Number(options.dropIntervalSec))) {
         state.dropIntervalSec = clamp(Math.round(Number(options.dropIntervalSec)), DROP_INTERVAL_MIN_S, DROP_INTERVAL_MAX_S)
       }
@@ -2717,6 +2738,7 @@
   if (!applyAnchorPos()) { state.h = 'left'; state.v = 'bottom'; state.hOff = 0; state.vOff = 0; settle() }
   updateScreen()
   setupHitTest()
+  applySoundPack(state.soundPack)
   initSoundLibrary()
 
   rafId = requestAnimationFrame(frame)

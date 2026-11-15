@@ -39,6 +39,11 @@ const ASSET_ROUTES = {
   '/dsh-vk1/feed.mp3': ['feed.mp3', 'audio/mpeg'],
   '/dsh-vk1/pot_land.mp3': ['pot_land.mp3', 'audio/mpeg'],
   '/dsh-vk1/pot_off.mp3': ['pot_off.mp3', 'audio/mpeg'],
+  // 音效包素材（dsh-whale-widget assets，MIT）：小黄鸭按/松、经验球、每轮消耗提示音
+  '/dsh-vk1/duck_press.mp3': ['duck_press.mp3', 'audio/mpeg'],
+  '/dsh-vk1/duck_release.mp3': ['duck_release.mp3', 'audio/mpeg'],
+  '/dsh-vk1/orb.wav': ['orb.wav', 'audio/wav'],
+  '/dsh-vk1/cost.wav': ['cost.wav', 'audio/wav'],
   ...Object.fromEntries(Array.from({ length: 5 }, (_, i) =>
     [`/dsh-vk1/pat_hand_${i}.png`, [`pat_hand_${i}.png`, 'image/png']])),
 }
