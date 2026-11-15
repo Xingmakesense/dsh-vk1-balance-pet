@@ -1,8 +1,8 @@
 {
   "name": "dsh-vk1-balance-pet",
-  "version": "2.2.0",
+  "version": "2.3.0",
   "private": true,
-  "description": "DSH 网页余额桌宠（大肥鱼）：余额平板、可配置掉盆与吸附、四表情、可切换音效包、气泡提醒词、资源管理；余额走官方账号凭据，无 API key 输入。",
+  "description": "DSH 网页余额桌宠（大肥鱼）：可换立绘皮肤、余额平板、可配置掉盆与吸附、每音效单独选源、气泡提醒词、资源管理；余额走官方账号凭据，无 API key 输入。",
   "type": "module",
   "exports": {
     ".": "./index-v2.js",

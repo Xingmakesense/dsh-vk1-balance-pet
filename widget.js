@@ -89,11 +89,64 @@
     calm: BASE + '/expression_21.png',
   }
   var EXPR_ORDER = ['happy', 'nervous', 'aloof', 'calm']
+  // 皮肤表。quad 是平板四角（左上/右上/右下/左下，1024 纹理空间）。
+  // board: 'sprite' 表示平板已经画在立绘里（文字直接贴上去）；
+  //        'rect'   表示立绘没有平板，由我们画一块圆角底板再写字。
+  var SKINS = {
+    vk1: {
+      id: 'vk1',
+      name: '\u63A7\u5236\u53F0\u539F\u751F',
+      faces: {
+        happy: BASE + '/expression_11.png',
+        nervous: BASE + '/expression_22.png',
+        aloof: BASE + '/expression_12.png',
+        calm: BASE + '/expression_21.png',
+      },
+      quad: [549.6, 706.2, 949.7, 642.0, 984.7, 860.2, 584.6, 924.3],
+      board: 'sprite',
+    },
+    dsniang: {
+      id: 'dsniang',
+      name: '\u84DD\u53D1\u5973\u4EC6',
+      // 单图立绘：四表情共用一张（切换表情不再换图，但红闪/震动仍生效）
+      faces: {
+        happy: BASE + '/skin_dsniang1.png',
+        nervous: BASE + '/skin_dsniang1.png',
+        aloof: BASE + '/skin_dsniang1.png',
+        calm: BASE + '/skin_dsniang1.png',
+      },
+      // 立绘 610×610，平板画在角色胸前偏右下：换算到 1024 纹理空间
+      quad: [512, 760, 960, 700, 990, 900, 560, 950],
+      // 这张立绘没有可贴字的手持板，改用「底部浮动徽章」显示余额
+      board: 'badge',
+    },
+  }
+  // 自定义立绘（用户上传）：四表情共用一张，用徽章模式显示余额
+  function registerCustomSkin(dataUrl) {
+    SKINS.custom = {
+      id: 'custom',
+      name: '\u81EA\u5B9A\u4E49',
+      faces: { happy: dataUrl, nervous: dataUrl, aloof: dataUrl, calm: dataUrl },
+      quad: [512, 760, 960, 700, 990, 900, 560, 950],
+      board: 'badge',
+    }
+  }
+  function skinOf(id) { return SKINS[id] || SKINS.vk1 }
+  // 建 DOM 时 state 还没声明，这里直接读持久化的皮肤 id
+  function bootSkinId() {
+    try {
+      var o = JSON.parse(localStorage.getItem(OPTIONS_KEY) || 'null')
+      if (o && typeof o.skin === 'string' && SKINS[o.skin]) return o.skin
+    } catch (err) {}
+    return 'vk1'
+  }
   var RICE_URL = BASE + '/rice.png'
   var IRON_URL = BASE + '/iron_bowl.png'
   var ironDrawUrl = ''
   var HIT_SOUND = BASE + '/hit.mp3'
   var FEED_SOUND = BASE + '/feed.mp3'
+  // 单击角色的音效（小黄鸭挤压音），与其它槽分开，有单独的开关
+  var CLICK_SOUND = BASE + '/duck_press.mp3'
   var BALANCE_URL = BASE + '/balance.json'
 
   // 音效包（素材来自 dsh-whale-widget 的 assets，MIT）：
@@ -162,11 +215,12 @@
   // 尺寸整体缩到上一版的 2/3（用户反馈界面偏大），滑条上限从 20 级收到 10 级。
   var SIZE_SCALE_DOWN = 2 / 3
   var SCALE_MIN = 0.6
-  var SCALE_MAX = 2.5
+  // 最大尺寸收到上一版的一半：SCALE_MAX 2.5 → 1.25（最小仍 0.6，不动）
+  var SCALE_MAX = 1.25
   var SCALE_STEP = 0.1
   var SCALE_STEPS = 10                     // 滑杆 1–10 级（上限与 SIZE_MAX_PX 同步收窄）
   var SIZE_MIN_PX = 122
-  var SIZE_MAX_PX = Math.round(625 * (2 / 3))   // 417px：上限同样按 2/3 收窄
+  var SIZE_MAX_PX = Math.round(625 * (2 / 3) / 2)   // 209px：上限再砍一半
   var SIZE_BASE_RATIO = 0.28
   var SIZE_BASE_CAP = 250
   var DEFAULT_SCALE = 1
@@ -232,12 +286,22 @@
     '.dshvk1-flash{position:absolute;left:0;top:0;width:100%;height:100%;background:' + FLASH_COLOR + ';opacity:0;pointer-events:none;' +
       '-webkit-mask-size:100% 100%;-webkit-mask-repeat:no-repeat;mask-size:100% 100%;mask-repeat:no-repeat}',
     '.dshvk1-panel{position:absolute;left:0;top:0;transform-origin:0 0;pointer-events:none;text-align:center}',
-    '.dshvk1-label{position:absolute;left:0;right:0;top:1%;height:26%;display:flex;align-items:center;justify-content:center;' +
+    // 无平板立绘（board: rect）：自己画一块深色圆角底板，文字放在板上
+    '.dshvk1-root.dshvk1-board-badge .dshvk1-panel{background:linear-gradient(180deg,rgba(24,30,46,.95),rgba(10,14,24,.95));' +
+      'border:1px solid rgba(120,140,180,.55);border-radius:9px;padding:4px 6px;box-sizing:border-box;' +
+      'display:flex;flex-direction:column;align-items:center;gap:1px;box-shadow:0 4px 14px rgba(0,0,0,.45);position:absolute}',
+    '.dshvk1-root.dshvk1-board-badge .dshvk1-label{position:static;height:auto;font-size:calc(var(--dshvk1-ph) * 0.34);opacity:.85}',
+    '.dshvk1-root.dshvk1-board-badge .dshvk1-amount{position:static;top:auto;bottom:auto;left:auto;right:auto;padding:0;max-width:100%;overflow:hidden}',
+    '.dshvk1-root.dshvk1-board-rect .dshvk1-panel{background:linear-gradient(180deg,rgba(24,30,46,.96),rgba(12,16,26,.96));' +
+      'border:2px solid rgba(120,140,180,.55);border-radius:10px;box-shadow:0 6px 18px rgba(0,0,0,.45);box-sizing:border-box;' +
+      'display:flex;flex-direction:column;justify-content:center;padding:6% 4%}',
+    '.dshvk1-label{position:absolute;left:0;right:0;top:4%;height:26%;display:flex;align-items:center;justify-content:center;' +
       'font-size:calc(var(--dshvk1-ph) * 0.18);font-weight:700;letter-spacing:.02em;color:rgba(158,182,224,.92);' +
       'text-shadow:calc(var(--dshvk1-ph) * 0.005) calc(var(--dshvk1-ph) * 0.005) 0 rgba(0,0,0,.59);white-space:nowrap}',
     // 数字在平板内**垂直+水平居中**：满高 flex 居中，再用 margin-top 抵消标签占位。
-    '.dshvk1-amount{position:absolute;left:0;right:0;top:0;bottom:0;display:flex;align-items:center;justify-content:center;' +
-      'white-space:nowrap;margin-top:calc(var(--dshvk1-ph) * 0.11)}',
+    // 数字区：水平居中，垂直上移到平板中下部（原来偏下沿）
+    '.dshvk1-amount{position:absolute;left:0;right:0;top:38%;bottom:0;display:flex;align-items:center;justify-content:center;' +
+      'white-space:nowrap}',
     '.dshvk1-cur{font-size:calc(var(--dshvk1-ph) * 0.27);font-weight:700;color:rgba(158,184,230,.92);' +
       'text-shadow:calc(var(--dshvk1-ph) * 0.005) calc(var(--dshvk1-ph) * 0.005) 0 rgba(0,0,0,.63)}',
     '.dshvk1-num{font-size:calc(var(--dshvk1-ph) * 0.48);font-weight:800;color:#f0f6ff;line-height:1;' +
@@ -294,7 +358,7 @@
   EXPR_ORDER.forEach(function (key) {
     var im = document.createElement('img')
     im.className = 'dshvk1-face'
-    im.src = EXPR_URL[key]
+    im.src = skinOf(bootSkinId()).faces[key]
     im.alt = LABEL_TEXT
     im.draggable = false
     im.style.display = key === 'happy' ? 'block' : 'none'
@@ -303,8 +367,8 @@
 
     var fl = document.createElement('div')
     fl.className = 'dshvk1-flash'
-    fl.style.webkitMaskImage = 'url(' + EXPR_URL[key] + ')'
-    fl.style.maskImage = 'url(' + EXPR_URL[key] + ')'
+    fl.style.webkitMaskImage = 'url(' + skinOf(bootSkinId()).faces[key] + ')'
+    fl.style.maskImage = 'url(' + skinOf(bootSkinId()).faces[key] + ')'
     fl.style.display = key === 'happy' ? 'block' : 'none'
     art.appendChild(fl)
     flashes[key] = fl
@@ -391,13 +455,17 @@
     menuOpen: false,
     fxBowl: true, fxPat: true, fxHurt: true,
     soundPack: 'default',
+    skin: 'vk1',
+    clickSoundOn: true,
+    autoIronOnFeed: true,
+    cueSrc: [],
     bubbleOn: true,
     bubbleGifOn: true,
     reminders: ["\u672C\u8F6E \u00A5{cost}", "\u8FD9\u4E00\u8F6E\u82B1\u4E86 \u00A5{cost}\uFF0C\u5979\u5F88\u5F00\u5FC3", "\u5E10\u5355\u62A5\u544A\uFF1A\u00A5{cost}"],
     lastTurnSeq: 0,
     turnCost: 0,
     theme: 'auto',
-    cueVolumes: [100, 100, 100, 100, 100],
+    cueVolumes: [100, 100, 100, 100, 100, 100],
     usage: null,
     hostVersion: '',
     lastTabletClick: null,
@@ -417,8 +485,9 @@
   // ------------------------------------------------------- layout / screen ---
   function quad() {
     var sc = scaleOf()
+    var q = skinOf(state.skin).quad
     var P = []
-    for (var i = 0; i < 4; i++) P.push({ x: QX[i] * sc, y: QY[i] * sc })
+    for (var i = 0; i < 4; i++) P.push({ x: q[i * 2] * sc, y: q[i * 2 + 1] * sc })
     var lw = Math.sqrt(Math.pow(P[1].x - P[0].x, 2) + Math.pow(P[1].y - P[0].y, 2))
     var lh = Math.sqrt(Math.pow(P[3].x - P[0].x, 2) + Math.pow(P[3].y - P[0].y, 2))
     return { P: P, lw: lw, lh: lh }
@@ -440,10 +509,26 @@
     // Mirrored: the artwork flipped about the widget centre, so map the panel onto
     // the mirrored quad instead of flipping the glyphs (det stays positive).
     var m = flip ? [a, -b, -c, d, state.size - P[1].x, P[1].y] : [a, b, c, d, P[0].x, P[0].y]
-    panel.style.width = pw + 'px'
-    panel.style.height = ph + 'px'
-    panel.style.setProperty('--dshvk1-ph', ph + 'px')
-    panel.style.transform = 'matrix(' + m.join(',') + ')'
+    var board = skinOf(state.skin).board
+    if (board === 'badge') {
+      // 浮动徽章：宽度 62% 角色宽、贴底居中；高度按内容撑开
+      var bw = Math.round(state.size * 0.62)
+      panel.style.width = bw + 'px'
+      panel.style.height = 'auto'
+      panel.style.setProperty('--dshvk1-ph', String(Math.round(bw * 0.52)) + 'px')
+      panel.style.transform = 'none'
+      panel.style.left = Math.round((state.size - bw) / 2) + 'px'
+      panel.style.top = 'auto'
+      panel.style.bottom = Math.round(state.size * 0.02) + 'px'
+    } else {
+      panel.style.width = pw + 'px'
+      panel.style.height = ph + 'px'
+      panel.style.setProperty('--dshvk1-ph', ph + 'px')
+      panel.style.transform = 'matrix(' + m.join(',') + ')'
+      panel.style.left = ''
+      panel.style.top = ''
+      panel.style.bottom = ''
+    }
     var r = Math.max(2.5, state.size * 0.032)
     var cx = (P[1].x + P[2].x) / 2
     if (flip) cx = state.size - cx
@@ -530,30 +615,52 @@
     }
     return { pool: pool, idx: 0, cue: 0 }
   }
-  var hitPool = makePool(HIT_SOUND, 4)
-  var feedPool = makePool(FEED_SOUND, 2)
-  feedPool.cue = 1
-  var landPool = makePool(BASE + '/pot_land.mp3', 2)
-  landPool.cue = 2
-  var offPool = makePool(BASE + '/pot_off.mp3', 2)
-  offPool.cue = 3
-  var cuePools = [hitPool, feedPool, landPool, offPool]
-  var endPool = makePool(BASE + '/task_end.wav', 2)
-  endPool.cue = 4
-  cuePools.push(endPool)
+  var hitPool = null
+  var feedPool = null
+  var landPool = null
+  var offPool = null
+  var endPool = null
+  var clickPool = null
+  // cuePools 的槽位顺序固定：0 掉血 / 1 回血 / 2 铁盆落头 / 3 双击取盆 / 4 任务结束 / 5 单击
+  var cuePools = []
   function currentPack() { return SOUND_PACKS[state.soundPack] || SOUND_PACKS.default }
   // 切换音效包：重建四个池（掉血 / 回血 / 铁盆落头 / 取盆），并保留分项音量。
+  // 每个音效槽的默认音频。cueSrc（用户为单个槽选过的音源）优先。
+  function defaultCueSrcs() {
+    var pack = currentPack()
+    return [pack.hit, pack.feed, pack.land, pack.off, pack.end || (BASE + '/task_end.wav'), CLICK_SOUND]
+  }
+  // 重建全部槽位。cueSrcs 允许只覆盖部分槽。
+  function rebuildPools(cueSrcs) {
+    try { cuePools.forEach(function (p) { stopPool(p) }) } catch (err) {}
+    var base = defaultCueSrcs()
+    var srcs = base.map(function (def, i) {
+      var custom = cueSrcs && cueSrcs[i] ? String(cueSrcs[i]) : ''
+      return custom || def
+    })
+    hitPool = makePool(srcs[0], 4)
+    feedPool = makePool(srcs[1], 2)
+    landPool = makePool(srcs[2], 2)
+    offPool = makePool(srcs[3], 2)
+    endPool = makePool(srcs[4], 2)
+    clickPool = makePool(srcs[5], 2)
+    feedPool.cue = 1; landPool.cue = 2; offPool.cue = 3; endPool.cue = 4; clickPool.cue = 5
+    cuePools = [hitPool, feedPool, landPool, offPool, endPool, clickPool]
+    state.cueSrc = srcs.map(function (x, i) { return (cueSrcs && cueSrcs[i]) || '' })
+    return srcs
+  }
+  // 兼容旧调用：切换「默认音效池」（用户自定义过源时保留自定义）
   function applySoundPack(packId) {
     state.soundPack = SOUND_PACKS[packId] ? packId : 'default'
-    var pack = currentPack()
-    try { cuePools.forEach(function (p) { stopPool(p) }) } catch (err) {}
-    hitPool = makePool(pack.hit, 4)
-    feedPool = makePool(pack.feed, 2)
-    landPool = makePool(pack.land, 2)
-    offPool = makePool(pack.off, 2)
-    endPool = makePool(pack.end || (BASE + '/task_end.wav'), 2)
-    feedPool.cue = 1; landPool.cue = 2; offPool.cue = 3; endPool.cue = 4
-    cuePools = [hitPool, feedPool, landPool, offPool, endPool]
+    rebuildPools(state.cueSrc || null)
+    saveOptions()
+  }
+  // 给单个槽换源（src='' 表示回到默认）
+  function setCueSource(cue, src) {
+    var cur = (state.cueSrc || []).slice()
+    while (cur.length < 6) cur.push('')
+    cur[cue] = src || ''
+    rebuildPools(cur)
     saveOptions()
   }
   function playPool(p) {
@@ -874,6 +981,8 @@
     return rimX > cx - halfW && rimX < cx + halfW && rimY > cy - halfH && rimY < cy + halfH
   }
   function attachIronPot(p) {
+    // 铁盆落头与单击 Q 弹都写 body transform，同时播会互相覆盖 → 戴盆时直接结束弹跳。
+    state.clickJumpT = CLICK_JUMP_DUR
     p.wornOrder = ++wornSequence
     var a = ironHeadAnchor(p)
     p.onHead = true
@@ -1161,6 +1270,24 @@
   }
 
   // ----------------------------------------------------------- expression ---
+  // 换皮肤：替换四张表情图与红闪遮罩，重置命中画布，并按新皮肤的底板类型切样式
+  function applySkin(id) {
+    state.skin = SKINS[id] ? id : 'vk1'
+    var skin = skinOf(state.skin)
+    EXPR_ORDER.forEach(function (key) {
+      var url = skin.faces[key]
+      faces[key].src = url
+      flashes[key].style.webkitMaskImage = 'url(' + url + ')'
+      flashes[key].style.maskImage = 'url(' + url + ')'
+    })
+    root.classList.toggle('dshvk1-board-rect', skin.board === 'rect')
+    root.classList.toggle('dshvk1-board-badge', skin.board === 'badge')
+    hitSrc = ''
+    updateHitSource()
+    layout()
+    saveOptions()
+  }
+
   function setExpression(want) {
     if (state.expr === want) return
     state.expr = want
@@ -1249,7 +1376,10 @@
     if (text !== lastScreenText) {
       lastScreenText = text
       numEl.textContent = text
-      numEl.style.fontSize = 'calc(var(--dshvk1-ph) * ' + Math.min(0.48, 2.5 / Math.max(1, text.length)) + ')'
+      // 面板宽 520 CSS px、高约 0.7×520；数字要占可见宽度的一部分：
+      // 短数字用 0.46ph，长到 7 位就收到 0.30ph，保证 ¥ + 数字 + 边距不越界。
+      var fs = Math.min(0.46, 2.2 / Math.max(3, text.length))
+      numEl.style.fontSize = 'calc(var(--dshvk1-ph) * ' + fs.toFixed(3) + ')'
       updateTablet()
     }
     if (state.connected !== lastConnected) {
@@ -1428,7 +1558,8 @@
 
     if (state.headSquashT < HEAD_SQUASH_DUR) state.headSquashT += dt
     var hu = state.headSquashT / HEAD_SQUASH_DUR
-    var squash = hu < 1 ? Math.sin(Math.PI * hu) * (1 - hu) * 0.6 : 0
+    // 单击弹跳进行中不叠加头顶挤压，避免两套 scale 同帧相乘导致抖动
+    var squash = (state.clickJumpT >= CLICK_JUMP_DUR && hu < 1) ? Math.sin(Math.PI * hu) * (1 - hu) * 0.6 : 0
     var shakeTf = 'translate(' + Math.round(sx) + 'px,' + Math.round(sy) + 'px)'
     if (squash > 0.001) {
       shakeTf += ' scale(' + (1 + squash * 0.10).toFixed(4) + ',' + (1 - squash * 0.16).toFixed(4) + ')'
@@ -1501,7 +1632,8 @@
   var potArtReady = false
   var potMask = { key: '', url: '', applied: '' }
   function updateHitSource() {
-    var url = EXPR_URL[state.expr] || EXPR_URL.happy
+    var skin = skinOf(state.skin)
+    var url = skin.faces[state.expr] || skin.faces.happy
     if (hitSrc === url) return
     hitSrc = url
     hitReady = false
@@ -1998,10 +2130,15 @@
     removeDragListeners()
     swallowNextClick(400)
     if (!d.moved) {
-      // 单击角色：Q 弹一下 + 音效，然后顺手刷新余额（原来只是静默刷新）
+      // 单击角色：Q 弹 + 音效 + 气泡。
+      // ⚠️ 这里不能用 poll(true)：snap 会清空场上没喂的饭盆（旧版单击就把它们重置了）。
       state.clickJumpT = 0
-      playPool(feedPool)
-      poll(true)
+      if (state.clickSoundOn !== false) playPool(clickPool)
+      // 只有「没有别的气泡在显示 / 排队」时才插一句，避免挤掉本轮消耗提示。
+      if (state.bubbleOn && !bubbleText && !bubbleQueue.length) {
+        showBubble(pickReminder('') || ('\u00A5' + (isFinite(drawnBalance()) ? fmt2(drawnBalance()) : '--')))
+      }
+      poll(false)
       return
     }
 
@@ -2147,7 +2284,7 @@
     sizeRow.appendChild(num)
     menu.appendChild(sizeRow)
 
-    menuToggle('\u706B\u63A7\u96F7\u8FBE\u94ED\u724C', state.radarOn, function (on) {
+    menuToggle('\u706B\u63A7\u96F7\u8FBE', state.radarOn, function (on) {
       state.radarOn = on
       saveOptions()
       if (!on) { state.lockAll = false; state.radarManual = false; if (radarSvg.firstChild) radarSvg.innerHTML = '' }
@@ -2178,6 +2315,7 @@
     menu.appendChild(dropRow)
 
     menuSep()
+    menuRow('\u5F62\u8C61\u4E0E\u529F\u80FD', function () { showSettings('look') })
     menuRow('\u5438\u9644\u4E0E\u7FFB\u8F6C', function () { showSettings('snap') })
     menuRow('\u58F0\u97F3\u4E0E\u97F3\u6548', function () { showSettings('sound') })
     menuRow('\u97F3\u6548\u5E93', function () { showSettings('library') })
@@ -2374,6 +2512,7 @@
         radarOn: state.radarOn, dropIntervalSec: state.dropIntervalSec,
         soundPack: state.soundPack, stepYuan: state.stepYuan,
         bubbleOn: state.bubbleOn, reminders: state.reminders, turnEndOn: state.turnEndOn, bubbleGifOn: state.bubbleGifOn,
+        clickSoundOn: state.clickSoundOn, cueSrc: state.cueSrc, skin: state.skin, autoIronOnFeed: state.autoIronOnFeed,
       }))
     } catch (e) {}
   }
@@ -2414,6 +2553,13 @@
     '.dshvk1-snapflip{position:absolute;top:0;bottom:0;width:2px;margin-left:-1px;background:#c0392b;cursor:ew-resize}',
     '.dshvk1-snapflip::after{content:"";position:absolute;left:-4px;right:-4px;top:0;bottom:0}',
     '.dshvk1-snapread{margin-top:4px;font-size:11.5px;color:var(--vk-muted);font-variant-numeric:tabular-nums}',
+    '.dshvk1-cuebox{padding:5px 0;border-bottom:1px solid var(--vk-border)}',
+    '.dshvk1-cuebox:last-child{border-bottom:none}',
+    '.dshvk1-cuehead{display:flex;align-items:center;justify-content:space-between;gap:6px}',
+    '.dshvk1-cuename{font-size:12.5px}',
+    '.dshvk1-cuesel{max-width:52%;padding:1px 4px;border:1px solid var(--vk-border);border-radius:5px;background:var(--vk-card);color:inherit;font-size:11.5px}',
+    '.dshvk1-cuevol{display:flex;align-items:center;gap:6px;margin-top:2px}',
+    '.dshvk1-cuevollabel{font-size:11px;color:var(--vk-muted)}',
     '.dshvk1-textarea{width:100%;box-sizing:border-box;padding:5px;background:var(--vk-card);border:1px solid var(--vk-border);' +
       'border-radius:5px;font:12px/1.5 system-ui,sans-serif;color:inherit;resize:vertical}',
     '.dshvk1-reslist{max-height:200px;overflow:auto;border:1px solid var(--vk-border);border-radius:6px;margin:6px 0}',
@@ -2514,6 +2660,7 @@
   }
   document.addEventListener('keydown', onEscape, true)
   var SETTINGS_PAGES = {
+    look: '\u5F62\u8C61\u4E0E\u529F\u80FD',
     snap: '\u5438\u9644\u4E0E\u7FFB\u8F6C',
     sound: '\u58F0\u97F3\u4E0E\u97F3\u6548',
     library: '\u97F3\u6548\u5E93',
@@ -2660,7 +2807,31 @@
     settingsTitle.textContent = SETTINGS_PAGES[settingsPage] || '\u8BBE\u7F6E'
     content.textContent = ''
 
-    if (settingsPage === 'snap') {
+    if (settingsPage === 'look') {
+      section('\u7ACB\u7ED8\uFF08\u76AE\u80A4\uFF09')
+      var skinWrap = element('div', null, content, 'dshvk1-actions')
+      Object.keys(SKINS).forEach(function (id) {
+        var b = action(skinWrap, SKINS[id].name, function () { applySkin(id); renderSettings() })
+        b.setAttribute('aria-selected', String(state.skin === id))
+      })
+      hint('\u63A7\u5236\u53F0\u539F\u751F\uFF1A\u56DB\u8868\u60C5 + \u81EA\u5E26\u5C0F\u9ED1\u677F\uFF1B\u84DD\u53D1\u5973\u4EC6\uFF1A\u5355\u56FE\u7ACB\u7ED8\uFF0C\u9762\u677F\u7531\u63D2\u4EF6\u81EA\u5E26\u5E95\u677F\u3002')
+      section('\u529F\u80FD\u5F00\u5173')
+      ;[['fxBowl', '\u5145\u503C\u540E\u6389\u843D\u996D\u76C6\uFF08\u624B\u52A8\u62D6\u53D6\uFF09'],
+        ['fxPat', '\u9F20\u6807\u629A\u6478\u4F1A\u5F00\u5FC3'],
+        ['fxHurt', '\u6263\u8D39\u65F6\u64AD\u653E\u97F3\u6548\u4E0E\u52A8\u753B'],
+        ['clickSoundOn', '\u5355\u51FB\u89D2\u8272\u64AD\u653E\u97F3\u6548'],
+        ['bubbleOn', '\u663E\u793A\u6C14\u6CE1'],
+        ['autoIronOnFeed', '雷达吸附后铁盆直接扣头'],
+        ['turnEndOn', '\u4EFB\u52A1\u7ED3\u675F\u97F3\uFF08\u6BCF\u8F6E\uFF09']].forEach(function (it) {
+        row(it[1], checkbox(state[it[0]] !== false, function (v) {
+          state[it[0]] = v
+          saveOptions()
+          if (!v && it[0] === 'fxPat') blockPat()
+          if (it[0] === 'turnEndOn') { /* 立即生效，无需额外动作 */ }
+        }))
+      })
+      hint('\u5173\u6389\u6389\u76C6\u540E\u5145\u503C\u76F4\u63A5\u5165\u8D26\uFF1B\u5173\u6389\u6263\u8D39\u6548\u679C\u4ECD\u4F1A\u7ED3\u7B97\u4F59\u989D\u3002')
+    } else if (settingsPage === 'snap') {
       section('\u5438\u9644\u533A\u57DF')
       chips([['ratio', '\u6309\u6BD4\u4F8B'], ['px', '\u6309\u50CF\u7D20'], ['off', '\u5173\u95ED\u5438\u9644']], snapConfig.mode, function (mode) {
         snapConfig.mode = mode
@@ -2683,34 +2854,28 @@
         saveOptions()
         renderSettings()
       }))
-      hint('\u9ED8\u8BA4 0.5 \u5143\uFF1B\u8DDF\u4E0A\u6E38\u684C\u5BA0\u4E00\u6837\u6309\u6B65\u957F\u5206\u62CD\u63D0\u793A\uFF0C\u5C3E\u5DEE\u6309\u5B9E\u9645\u5DEE\u989D\u8865\u4E00\u62CD\u3002')
-      section('\u97F3\u6548\u5305')
-      var packWrap = element('div', null, content, 'dshvk1-actions')
-      Object.keys(SOUND_PACKS).forEach(function (id) {
-        var b = action(packWrap, SOUND_PACKS[id].name, function () { applySoundPack(id); renderSettings() })
-        b.setAttribute('aria-selected', String(state.soundPack === id))
-      })
-      hint('\u97F3\u6548\u5305\u6765\u81EA dsh-whale-widget \uFF08MIT\uFF09\uFF1B\u5207\u6362\u540E\u56DB\u8DEF\u97F3\u6548\u7ACB\u5373\u6362\u6E90\u3002')
       section('\u603B\u5F00\u5173')
       row('\u5F00\u542F\u58F0\u97F3', checkbox(state.soundOn, function (on) { state.soundOn = on; saveSound(); if (!on) stopPlaying() }))
       row('\u603B\u97F3\u91CF', rangeBox(state.volume, 0, 100, 1, function (v) { state.volume = v; saveSound() }))
-      section('\u5206\u9879\u97F3\u91CF')
+      section('\u9010\u4E2A\u97F3\u6548')
+      hint('\u6BCF\u4E2A\u97F3\u6548\u90FD\u53EF\u5355\u72EC\u9009\u6E90\uFF08\u9ED8\u8BA4 = \u63A7\u5236\u53F0\u539F\u751F\uFF09\u3001\u5355\u72EC\u8C03\u97F3\u91CF\u3001\u5355\u72EC\u8BD5\u542C\u3002')
       CUE_NAMES.forEach(function (name, i) {
-        row(name, rangeBox(state.cueVolumes[i], 0, 100, 1, function (v) { state.cueVolumes[i] = v; saveOptions() }))
+        var box = element('div', null, content, 'dshvk1-cuebox')
+        var head = element('div', null, box, 'dshvk1-cuehead')
+        element('span', name, head, 'dshvk1-cuename')
+        var sel = element('select', null, head, 'dshvk1-cuesel')
+        CUE_SOURCES.forEach(function (src) {
+          var opt = element('option', src.name, sel)
+          opt.value = src.id
+        })
+        sel.value = (state.cueSrc && state.cueSrc[i]) || ''
+        sel.addEventListener('change', function () { setCueSource(i, sel.value) })
+        var volRow = element('div', null, box, 'dshvk1-cuevol')
+        element('span', '\u97F3\u91CF', volRow, 'dshvk1-cuevollabel')
+        volRow.appendChild(rangeBox(state.cueVolumes[i], 0, 100, 1, function (v) { state.cueVolumes[i] = v; saveOptions() }))
+        action(volRow, '\u8BD5\u542C', function () { playPool(cuePools[i]) })
       })
-      hint('\u603B\u97F3\u91CF\u4E0E\u5206\u9879\u97F3\u91CF\u76F8\u4E58\uFF1B\u8C03\u81F3 0% \u53EF\u5355\u72EC\u9759\u97F3\u3002\u81EA\u5B9A\u4E49\u97F3\u9891\u5728\u300C\u97F3\u6548\u5E93\u300D\u3002')
-    } else if (settingsPage === 'demo') {
-      hint('\u53EA\u64AD\u52A8\u753B\uFF08\u7EA2\u95EA / \u9707\u52A8 / \u98D8\u5B57 / \u97F3\u6548 / \u6389\u76C6\uFF09\uFF0C\u4E0D\u6539\u5E73\u677F\u6570\u5B57\uFF0C\u4E5F\u4E0D\u8BA1\u5165\u4ECA\u65E5\u6D88\u8D39\u3002')
-      var demoActions = element('div', null, content, 'dshvk1-actions')
-      action(demoActions, '\u5355\u6B21\u6263\u8D39', function () { makeTick(stepValue(), true) })
-      action(demoActions, '\u5341\u6B21\u6263\u8D39', function () { state.demoAmount = stepValue(); state.demoLeft = 10 })
-      var count = 10, amount = 3
-      row('\u81EA\u5B9A\u4E49\u6263\u8D39\u6B21\u6570', numberBox(count, 1, 10000, 1, function (v) { count = v }))
-      action(content, '\u6F14\u793A\u81EA\u5B9A\u4E49\u6263\u8D39', function () { state.demoAmount = stepValue(); state.demoLeft = count })
-      row('\u5145\u503C\u91D1\u989D\uFF08\u5143\uFF09', numberBox(amount, 0.01, 1000000, 0.01, function (v) { amount = v }))
-      var demoCredit = element('div', null, content, 'dshvk1-actions')
-      action(demoCredit, '\u6A21\u62DF\u5145\u503C 3 \u5143', function () { startCredit(3, true); closeSettingsPanel() })
-      action(demoCredit, '\u6F14\u793A\u81EA\u5B9A\u4E49\u5145\u503C', function () { startCredit(amount, true); closeSettingsPanel() })
+      hint('\u603B\u97F3\u91CF\u4E0E\u5206\u9879\u97F3\u91CF\u76F8\u4E58\uFF1B\u81EA\u5B9A\u4E49\u97F3\u9891\u5728\u300C\u97F3\u6548\u5E93\u300D\u3002')
     } else if (settingsPage === 'bubble') {
       section('\u6C14\u6CE1')
       row('\u663E\u793A\u6C14\u6CE1', checkbox(state.bubbleOn, function (v) { state.bubbleOn = v; saveOptions() }))
@@ -2765,7 +2930,29 @@
 
   // 四路音效槽的显示名：与 DEFAULT_SOUNDS / state.cueVolumes / activeClips 的索引一一对应。
   // （v2.0.0 重构设置页时这一行被误删，导致声音页 ReferenceError，v2.0.1 修复。）
-  var CUE_NAMES = ['\u6389\u8840\u97F3\u6548', '\u56DE\u8840\u97F3\u6548', '\u94C1\u76C6\u843D\u5934\u97F3\u6548', '\u53CC\u51FB\u53D6\u76C6\u97F3\u6548', '\u4EFB\u52A1\u7ED3\u675F\u97F3']
+  // 音效槽命名：顺序与 cuePools 槽位一一对应（0..5）
+  var CUE_NAMES = [
+    '\u6389\u8840\uFF08\u6BCF\u6B65\u6263\u8D39\uFF09',
+    '\u56DE\u8840\uFF08\u5582\u996D\u5165\u8D26\uFF09',
+    '\u94C1\u76C6\u843D\u5934',
+    '\u53CC\u51FB\u53D6\u76C6',
+    '\u4EFB\u52A1\u7ED3\u675F',
+    '\u5355\u51FB\u89D2\u8272',
+  ]
+  var CUE_SOURCES = [
+    { id: '', name: '\u9ED8\u8BA4' },
+    { id: BASE + '/duck_press.mp3', name: '\u5C0F\u9EC4\u9E2D\u00B7\u6309\u4E0B' },
+    { id: BASE + '/duck_release.mp3', name: '\u5C0F\u9EC4\u9E2D\u00B7\u677E\u5F00' },
+    { id: BASE + '/orb.wav', name: '\u7ECF\u9A8C\u7403' },
+    { id: BASE + '/cost.wav', name: '\u6BCF\u8F6E\u6D88\u8017' },
+    { id: BASE + '/task_end.wav', name: '\u4EFB\u52A1\u7ED3\u675F\u97F3' },
+    { id: BASE + '/fx1_press.mp3', name: '\u97F3\u6548\u7EC41\u00B7\u6309\u4E0B' },
+    { id: BASE + '/fx1_release.mp3', name: '\u97F3\u6548\u7EC41\u00B7\u677E\u5F00' },
+    { id: BASE + '/hit.mp3', name: '\u63A7\u5236\u53F0\u00B7\u6253\u51FB' },
+    { id: BASE + '/feed.mp3', name: '\u63A7\u5236\u53F0\u00B7\u56DE\u8840' },
+    { id: BASE + '/pot_land.mp3', name: '\u63A7\u5236\u53F0\u00B7\u94C1\u76C6\u843D\u5730' },
+    { id: BASE + '/pot_off.mp3', name: '\u63A7\u5236\u53F0\u00B7\u53D6\u76C6' },
+  ]
   var DEFAULT_SOUNDS = [HIT_SOUND, FEED_SOUND, BASE + '/pot_land.mp3', BASE + '/pot_off.mp3', BASE + '/task_end.wav']
   var soundDb = null, audioContext = null, previewAudio = null, previewUrl = null
   var clips = [], activeClips = {}, libraryStatus = ''
@@ -2977,6 +3164,10 @@
       if (typeof options.bubbleOn === 'boolean') state.bubbleOn = options.bubbleOn
       if (typeof options.turnEndOn === 'boolean') state.turnEndOn = options.turnEndOn
       if (typeof options.bubbleGifOn === 'boolean') state.bubbleGifOn = options.bubbleGifOn
+      if (typeof options.clickSoundOn === 'boolean') state.clickSoundOn = options.clickSoundOn
+      if (typeof options.autoIronOnFeed === 'boolean') state.autoIronOnFeed = options.autoIronOnFeed
+      if (typeof options.skin === 'string' && SKINS[options.skin]) state.skin = options.skin
+      if (Array.isArray(options.cueSrc)) state.cueSrc = options.cueSrc.map(function (x) { return String(x || '') })
       if (Array.isArray(options.reminders)) {
         state.reminders = options.reminders
           .map(function (x) { return String(x == null ? '' : x).slice(0, 60) })
@@ -3002,7 +3193,9 @@
   if (!applyAnchorPos()) { state.h = 'left'; state.v = 'bottom'; state.hOff = 0; state.vOff = 0; settle() }
   updateScreen()
   setupHitTest()
-  applySoundPack(state.soundPack)
+  // 应用持久化的皮肤（建 DOM 时只换了图，这里补齐底板样式与命中图）
+  applySkin(state.skin)
+  rebuildPools(state.cueSrc || null)
   initSoundLibrary()
 
   rafId = requestAnimationFrame(frame)

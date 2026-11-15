@@ -90,7 +90,7 @@ function fixture(saved = {}) {
     updateBowls, makeTick, frame, snapBounds, snapZones, settle, saveAnchor, applyAnchorPos,
     applySize, setScale, stepToScale, scaleToStep, baseSizePx, setDropInterval, restartDropTimer, CLICK_JUMP_DUR,
     updateRadar, buildMenu, openMenu, closeMenu,
-    isHit, onDocClick, swallowNextClick, applySoundPack, SOUND_PACKS, showBubble, pickReminder, tickBubble,
+    isHit, onDocClick, swallowNextClick, applySoundPack, SOUND_PACKS, showBubble, pickReminder, tickBubble, SKINS, skinOf, applySkin,
     getCuePools() { return cuePools },
     ready() { hitReady = true },
     stepValue, STEP_DEFAULT, STEP_MIN, STEP_MAX,
@@ -238,12 +238,13 @@ function fixture(saved = {}) {
   assert.equal(t.SCALE_STEPS, 10, '滑条上限 10 级')
   assert.equal(t.stepToScale(1), t.SCALE_MIN)
   assert.equal(t.stepToScale(t.SCALE_STEPS), t.SCALE_MAX)
-  assert.equal(t.scaleToStep(1), 3, '10 级滑条下 scale 1.0 对应第 3 级')
+  // 10 级映射 0.6..1.25：scale 1.0 落在第 7 级附近
+  assert.equal(t.scaleToStep(1), 7, '10 级滑条下 scale 1.0 ≈ 第 7 级')
   // 视口 1200x800 → 基准 min(250, 800*0.28=224)=224，再乘 2/3 → 约 149px
   assert.equal(t.baseSizePx(1), Math.round(224 * 2 / 3), '默认 1 倍 = 基准的 2/3')
   assert.equal(t.state.scale, 1)
-  t.setScale(2.5)
-  assert.equal(t.state.size, 373, '2.5 倍 → 约 373px（不再到 560px）')
+  t.setScale(1.25)
+  assert.equal(t.state.size, 187, '1.25 倍（新上限）→ 约 187px')
   t.setScale(0.6)
   assert.equal(t.state.size, 122, '0.6 倍 → 触到 122px 下限')
   t.stop()
@@ -348,4 +349,33 @@ function fixture(saved = {}) {
   t.stop()
 }
 
-console.log('behavior: WIDGET OK — 13 groups')
+// ⑭ 皮肤：切到蓝发女仆后四表情同图、board=badge
+{
+  const t = fixture()
+  assert.equal(t.SKINS.vk1.board, 'sprite')
+  assert.equal(t.SKINS.dsniang.board, 'badge')
+  t.applySkin('dsniang')
+  assert.equal(t.state.skin, 'dsniang')
+  assert.equal(t.skinOf(t.state.skin).faces.happy.indexOf('skin_dsniang1.png') >= 0, true)
+  t.applySkin('nope')
+  assert.equal(t.state.skin, 'vk1', '未知皮肤回落到 vk1')
+  t.stop()
+}
+
+// ⑮ 单击不重置未喂的饭盆（旧 bug：poll(true) 的 snap 会清空）
+{
+  const t = fixture()
+  t.applyBalance(10, false)
+  t.applyBalance(13, false)          // 充值 → 挂到待入账，不掉盆
+  t.dropTick()                        // 周期掉一盆
+  const before = t.state.bowls.filter(function (b) { return !b.iron }).length
+  assert.equal(before, 1)
+  // 模拟单击后的余额刷新（snap=false）
+  t.applyBalance(13, false)
+  assert.equal(t.state.bowls.filter(function (b) { return !b.iron }).length, 1, '单击刷新不得清掉未喂的盆')
+  t.applyBalance(13, true)            // 手动刷新（snap=true）仍然允许清空
+  assert.equal(t.state.bowls.filter(function (b) { return !b.iron }).length, 0)
+  t.stop()
+}
+
+console.log('behavior: WIDGET OK — 15 groups')
