@@ -80,15 +80,6 @@ injected[0].cb(table)
 assert.equal(table.length, 1, '注入行必须去重')
 
 // ② 路由清单
-// 资源现在是「一条 prefix 路由 + RESOURCES 表」，先确认 prefix 存在
-const prefixRoute = routes.get('/dsh-vk1/')
-assert.ok(prefixRoute, 'missing prefix resource route /dsh-vk1/')
-for (const p of [
-  '/dsh-vk1/balance.json', '/dsh-vk1/widget.js',
-  '/dsh-vk1/last-turn.json', '/dsh-vk1/resources.json', '/dsh-vk1/defaults.json',
-]) assert.ok(routes.has(p), 'missing route ' + p)
-
-// 资源逐个过 prefix 路由（等价于以前的 exact 路由）
 function fakeRes() {
   return {
     statusCode: 0, headers: {}, body: null,
@@ -96,6 +87,7 @@ function fakeRes() {
     end(b) { this.body = b },
   }
 }
+// 资源：外部接口回到「每个文件一条 exact 路由」，逐个核对
 for (const name of [
   'expression_11.png', 'expression_12.png', 'expression_21.png', 'expression_22.png',
   'rice.png', 'iron_bowl.png', 'hit.mp3', 'feed.mp3', 'pot_land.mp3', 'pot_off.mp3',
@@ -103,22 +95,23 @@ for (const name of [
   'fx1_press.mp3', 'fx1_release.mp3', 'rua.gif', 'bubble_petpet.gif', 'bubble_money.gif',
   'skin_dsniang1.png', 'pat_hand_0.png', 'pat_hand_4.png',
 ]) {
+  const route = routes.get('/dsh-vk1/' + name)
+  assert.ok(route, 'missing resource route ' + name)
   const res = fakeRes()
-  await prefixRoute.handler({ url: '/dsh-vk1/' + name }, res)
+  await route.handler({ url: '/dsh-vk1/' + name }, res)
   assert.equal(res.statusCode, 200, 'resource ' + name)
   assert.ok(res.body && res.body.length > 500, 'resource body ' + name)
 }
-for (const bad of ['../package.json', 'nope.png', 'index-v2.js']) {
-  const res = fakeRes()
-  await prefixRoute.handler({ url: '/dsh-vk1/' + bad }, res)
-  assert.equal(res.statusCode, 404, 'must reject ' + bad)
+// 未登记的名字不会被路由（exact 路由天然不匹配）
+for (const bad of ['nope.png', 'index-v2.js', '../package.json']) {
+  assert.equal(routes.has('/dsh-vk1/' + bad), false, 'must not route ' + bad)
 }
 
 
-// ③ 素材可服务（走 prefix 路由）
+// ③ 素材可服务（exact 路由）
 for (const name of ['expression_11.png', 'iron_bowl.png', 'hit.mp3']) {
   const res = fakeRes()
-  await prefixRoute.handler({ url: '/dsh-vk1/' + name }, res)
+  await routes.get('/dsh-vk1/' + name).handler({ url: '/dsh-vk1/' + name }, res)
   assert.equal(res.statusCode, 200, name)
   assert.ok(res.body.length > 1000, name)
 }

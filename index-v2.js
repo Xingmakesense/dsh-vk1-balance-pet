@@ -336,26 +336,25 @@ function apply(root) {
       return balanceInFlight
     }
 
-    // 资源：一条 prefix 路由，从 RESOURCES 查表；未知名字直接 404
-    disposers.push(ctx.webServer.register({
-      kind: 'prefix',
-      path: '/dsh-vk1/',
-      handler: (req, res) => {
-        const name = String(req.url || '').split('?')[0].replace(/^\/dsh-vk1\//, '')
-        // 只允许表里登记过的文件名（防目录穿越）
-        const entry = Object.prototype.hasOwnProperty.call(RESOURCES, name) ? RESOURCES[name] : null
-        if (!entry) { res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' }); res.end('not found'); return }
-        try {
-          const bytes = readAsset(entry[0])
-          res.writeHead(200, { 'Content-Type': entry[1], 'Cache-Control': 'no-store', 'Content-Length': String(bytes.length) })
-          res.end(bytes)
-        } catch (err) {
-          res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' })
-          res.end(entry[0] + ' unavailable')
-        }
-      },
-    }))
-
+    // 资源：**每个文件一条 exact 路由**（外部接口保持 v2.3.0 的形态；
+    // 文件名与 MIME 仍来自同一张 RESOURCES 表，新增素材只改表即可）。
+    for (const [name, [file, type]] of Object.entries(RESOURCES)) {
+      disposers.push(ctx.webServer.register({
+        kind: 'exact',
+        path: '/dsh-vk1/' + name,
+        handler: (req, res) => {
+          try {
+            const bytes = readAsset(file)
+            res.writeHead(200, { 'Content-Type': type, 'Cache-Control': 'no-store', 'Content-Length': String(bytes.length) })
+            res.end(bytes)
+          } catch (err) {
+            res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' })
+            res.end(file + ' unavailable')
+          }
+        },
+      }))
+    }
+    // 余额：账号路优先、API key 兜底；恒 200，错误放在 body 里
     disposers.push(ctx.webServer.register({
       kind: 'exact',
       path: '/dsh-vk1/balance.json',
@@ -376,9 +375,9 @@ function apply(root) {
       },
     }))
 
-    // 默认配置：客户端把「当前生效的设置」POST 上来，落盘为 defaults.json；
-    // 新装（或清了 localStorage）时 GET 拿回这份作为初始值 —— 也就是「以我现在的配置为默认」。
-    const DEFAULTS_FILE = path.join(process.env.DSH_HOME || path.join(require$os.homedir(), '.dsh'), 'storages', 'dsh-vk1-balance-pet', 'defaults.json')
+    // 默认配置：客户端把「当前生效的设置」POST 上来，落盘 defaults.json；
+    // 新装（或清了 localStorage）时 GET 拿回这份作为初始值。
+    const DEFAULTS_FILE = path.join(process.env.DSH_HOME || path.join(os.homedir(), '.dsh'), 'storages', 'dsh-vk1-balance-pet', 'defaults.json')
     function readDefaults() {
       try { return JSON.parse(fs.readFileSync(DEFAULTS_FILE, 'utf8')) } catch (err) { return null }
     }
@@ -386,7 +385,7 @@ function apply(root) {
       try {
         fs.mkdirSync(path.dirname(DEFAULTS_FILE), { recursive: true })
         const tmp = DEFAULTS_FILE + '.' + process.pid + '.tmp'
-        fs.writeFileSync(tmp, JSON.stringify(body, null, 2) + "\n", "utf8")
+        fs.writeFileSync(tmp, JSON.stringify(body, null, 2) + '\n', 'utf8')
         fs.renameSync(tmp, DEFAULTS_FILE)
         return true
       } catch (err) { return false }

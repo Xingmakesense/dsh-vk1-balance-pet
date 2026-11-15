@@ -330,9 +330,12 @@
     // ends up off the floor.
     '.dshvk1-bowl{position:absolute;left:0;top:0;pointer-events:none;will-change:transform;transform-origin:0 0}',
     '.dshvk1-heart{position:absolute;left:0;top:0;pointer-events:none;will-change:transform,opacity}',
-    '.dshvk1-bubble{display:flex;align-items:center;gap:6px;position:absolute;transform:translate(-50%,-100%);max-width:min(260px,60vw);padding:5px 9px;border-radius:9px;' +
+    // 气泡：左图右文，两栏都是独立盒；文字块 min-width:0 才不会把图片挤没
+    '.dshvk1-bubble{display:flex;align-items:flex-start;gap:6px;position:absolute;transform:translate(-50%,-100%);' +
+      'max-width:min(280px,64vw);padding:5px 9px;border-radius:9px;box-sizing:border-box;' +
       'background:rgba(20,28,46,.92);color:#eaf1ff;font:12px/1.45 system-ui,sans-serif;border:1px solid rgba(158,182,224,.45);' +
-      'box-shadow:0 4px 14px rgba(0,0,0,.32);white-space:pre-wrap;pointer-events:none;z-index:10005}',
+      'box-shadow:0 4px 14px rgba(0,0,0,.32);pointer-events:none;z-index:10005}',
+    '.dshvk1-bubbletext{flex:1 1 auto;min-width:0;white-space:pre-wrap;overflow-wrap:anywhere;word-break:break-word}',
     '.dshvk1-radar{position:absolute;left:0;top:0;width:100%;height:100%;pointer-events:none;overflow:visible}',
     '.dshvk1-root{position:fixed;left:0;top:0;width:var(--dshvk1-s);height:var(--dshvk1-s);pointer-events:none;user-select:none;-webkit-user-select:none;z-index:9998;font-family:inherit;transition:left .16s ease,top .16s ease}',
     '.dshvk1-root.dshvk1-dragging{transition:none;cursor:grabbing}',
@@ -609,12 +612,14 @@
   bubbleEl.className = 'dshvk1-bubble'
   bubbleEl.style.display = 'none'
   var bubbleTextEl = document.createElement('span')
+  bubbleTextEl.className = 'dshvk1-bubbletext'
   bubbleEl.appendChild(bubbleTextEl)
   var bubbleGifEl = document.createElement('img')
   bubbleGifEl.className = 'dshvk1-bubblegif'
   bubbleGifEl.alt = ''
   bubbleGifEl.draggable = false
-  bubbleGifEl.style.display = 'none'
+  // 取不到图就别留空位（旧版是 display:none 但被 flex 撑开）
+  bubbleGifEl.addEventListener('error', function () { bubbleGifEl.classList.remove('dshvk1-gif-on') })
   bubbleEl.appendChild(bubbleGifEl)
   stage.appendChild(bubbleEl)
   // 两条通道：cost = 消耗/余额提示；idle = 自动冒词。互不覆盖，cost 优先。
@@ -649,13 +654,14 @@
       bubbleChannel = nextChannel
       bubbleShownT = 0
       bubbleTextEl.textContent = bubbleText
-      // 装饰动图：消费类提示用 money，其它用 petpet；开关关掉就完全不用 GIF。
-      if (state.bubbleGifOn !== false) {
-        var gif = /\u00A5\s*\d/.test(bubbleText) ? BASE + '/bubble_money.gif' : BASE + '/bubble_petpet.gif'
+      // 装饰动图只在「自动冒词」通道出现：消耗/余额句一律纯文字，避免图文混杂。
+      var wantGif = state.bubbleGifOn !== false && bubbleChannel === 'idle'
+      if (wantGif) {
+        var gif = BASE + '/bubble_petpet.gif'
         if (bubbleGifEl.getAttribute('src') !== gif) bubbleGifEl.setAttribute('src', gif)
-        bubbleGifEl.style.display = 'block'
+        bubbleGifEl.classList.add('dshvk1-gif-on')
       } else {
-        bubbleGifEl.style.display = 'none'
+        bubbleGifEl.classList.remove('dshvk1-gif-on')
       }
       bubbleEl.style.display = 'block'
     }
@@ -2687,7 +2693,8 @@
     '.dshvk1-num{width:74px;padding:2px 5px;background:var(--vk-card);border:1px solid var(--vk-border);border-radius:5px;font-size:12px;text-align:right}',
     '.dshvk1-range{width:130px;max-width:46vw;accent-color:var(--vk-accent)}',
     '.dshvk1-actions{display:flex;flex-wrap:wrap;gap:5px;margin:6px 0}',
-    '.dshvk1-bubblegif{width:20px;height:20px;object-fit:contain;flex:0 0 auto;border-radius:4px}',
+    '.dshvk1-bubblegif{width:22px;height:22px;object-fit:contain;flex:0 0 auto;border-radius:4px;margin-top:1px;display:none}',
+    '.dshvk1-bubblegif.dshvk1-gif-on{display:block}',
     '.dshvk1-snapwrap{margin:6px 0 2px}',
     '.dshvk1-snapstage{position:relative;width:100%;height:132px;border:1px solid var(--vk-border);border-radius:8px;' +
       'background:repeating-linear-gradient(45deg,rgba(60,93,219,.05) 0 6px,transparent 6px 12px),var(--vk-card);overflow:hidden;touch-action:none}',

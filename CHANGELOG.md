@@ -1,5 +1,22 @@
 # Changelog
 
+## v2.4.1 - 2026-11-15
+
+### Fixed
+- **气泡里图片和文字混在一起**：气泡原本把文字当裸文本节点塞进 flex 行，长句会把 22px 的动图挤扁、压到文字上。
+  现在文字包进独立 `.dshvk1-bubbletext`（`flex:1 1 auto; min-width:0; overflow-wrap:anywhere`），图是固定尺寸的独立盒，
+  实测 `bubble 280×70 / gif 22×22 / text 252×32`，两栏不再重叠。
+- **图片不显示**：`display:none` 写在行内样式里，把 `.dshvk1-gif-on` 的 class 规则盖掉了；已改为纯 class 控制，并给 `img` 加 `error` 兜底（取不到图就不占位）。
+
+### Changed
+- **外部接口回退到 v2.3.0 的形态**：资源重新用「每个文件一条 exact 路由」注册（原来的 prefix 路由在宿主里取不到 `req.url`，是图片 404 的直接原因）。
+  文件名与 MIME 仍来自同一张 `RESOURCES` 表 —— 表是内部数据流、路由是外部接口，两者解耦；新增素材依旧只改一张表。
+- 装饰 GIF 只在「自动冒词」通道出现；消耗 / 余额句一律纯文字，从源头消除图文混杂。
+
+### Notes
+- DSH 的加载方式未改：仍是 `webserver/index-inject` 的结构化**内联 script 行**（桌面端唯一通道）+ `tapIndex`（Web 形态），与 dsh-whale-widget 完全同款。
+- `defaults.json`（GET/POST）属于**内部数据流**接口，按需求保留；外部素材接口则已回退。
+
 ## v2.4.0 - 2026-11-15
 
 ### Added

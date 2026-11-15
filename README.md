@@ -7,6 +7,16 @@
 以 [YCTS-otree/VK-1](https://github.com/YCTS-otree/VK-1) 的 `dsh-plugin` 为基线改造而来，
 **尺寸、位置与菜单形态照搬 [dsh-whale-widget](https://github.com/MeteorNOX/DeepSeek-Balance-Whale-Widget)**。
 
+## v2.4.1 的变化（相对 v2.4.0）
+
+| 项 | v2.4.1 |
+| --- | --- |
+| 气泡图文 | 文字独立成块（`min-width:0` + 自动换行），GIF 固定 22px，不再互相挤压 |
+| 图片不显示 | 去掉行内 `display:none`，改纯 class 控制 + `error` 兜底 |
+| 外部接口 | 资源路由**回退**为每文件一条 exact 路由（prefix 路由在宿主里取不到 `req.url`，导致 404） |
+| 内部数据流 | 仍是同一张 `RESOURCES` 表 + `defaults.json` / `last-turn.json` / `resources.json` |
+| 加载方式 | 未改：`webserver/index-inject` 内联 script 行 + `tapIndex`，与鲸鱼插件同款 |
+
 ## v2.4.0 的变化（相对 v2.3.0）
 
 | 项 | v2.4.0 |
