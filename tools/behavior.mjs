@@ -86,7 +86,7 @@ function fixture(saved = {}) {
   })
   ctx.window = ctx
   const hook = `window.test = {
-    state, pat, applyBalance, drawnBalance, STEP_INTERVAL_SEC, startCredit, spawnRiceBowl, dropTick, dropPoint, onRiceFed, newBowl,
+    state, pat, applyBalance, drawnBalance, STEP_INTERVAL_SEC, hasWornPot, btnOnRight, startCredit, spawnRiceBowl, dropTick, dropPoint, onRiceFed, newBowl,
     updateBowls, makeTick, frame, snapBounds, snapZones, settle, saveAnchor, applyAnchorPos,
     applySize, setScale, stepToScale, scaleToStep, baseSizePx, setDropInterval, restartDropTimer, CLICK_JUMP_DUR,
     updateRadar, buildMenu, openMenu, closeMenu,
@@ -494,4 +494,37 @@ function fixture(saved = {}) {
   t.stop()
 }
 
-console.log('behavior: WIDGET OK — 21 groups')
+// ㉒ 头顶有铁盆（≥1）时单击不触发 Q 弹；自动戴盆静音（不响第二声）
+{
+  const t = fixture()
+  t.applyBalance(10, false)
+  // 造一个戴在头上的铁盆
+  t.spawnRiceBowl(0, false)
+  t.onRiceFed(t.state.bowls[t.state.bowls.length - 1])
+  const worn = t.state.bowls.filter(function (b) { return b.iron && b.onHead })
+  assert.ok(worn.length >= 1, '应先有一个戴在头上的铁盆')
+  assert.equal(t.hasWornPot(), true, '头上有盆时 hasWornPot() 必须为真（→ 单击不弹）')
+  // 取下来之后再判定
+  worn[0].fadeT = 0.001
+  assert.equal(t.hasWornPot(), false, '没有戴盆时为假（→ 单击正常 Q 弹）')
+  t.stop()
+}
+
+// ㉓ ⋯ 按钮：左吸附贴左、右吸附贴右、自由摆放看中心相对翻转线
+{
+  const t = fixture()
+  t.state.size = 100
+  t.state.h = 'left'
+  assert.equal(t.btnOnRight(), false, '左吸附态按钮应在左')
+  t.state.h = 'right'
+  assert.equal(t.btnOnRight(), true, '右吸附态按钮应在右')
+  // 自由摆放：中心在翻转线（默认 50% = 600）左侧 → 贴左
+  t.state.h = null
+  t.state.left = 100
+  assert.equal(t.btnOnRight(), false, '自由态在左半边 → 贴左')
+  t.state.left = 1100
+  assert.equal(t.btnOnRight(), true, '自由态在右半边 → 贴右')
+  t.stop()
+}
+
+console.log('behavior: WIDGET OK — 23 groups')

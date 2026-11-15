@@ -7,6 +7,17 @@
 以 [YCTS-otree/VK-1](https://github.com/YCTS-otree/VK-1) 的 `dsh-plugin` 为基线改造而来，
 **尺寸、位置与菜单形态照搬 [dsh-whale-widget](https://github.com/MeteorNOX/DeepSeek-Balance-Whale-Widget)**。
 
+## v2.6.4 的变化（相对 v2.6.3）
+
+| 项 | v2.6.4 |
+| --- | --- |
+| 按钮位置 | 跟随可吸附侧：左吸附贴左、右吸附贴右、自由态按翻转线 |
+| 大余额板 | 已删除（`board-badge`/`board-rect` 皮肤只保留气泡） |
+| 气泡文案 | 补全为「DSH 余额 ¥x.xx」 |
+| 气泡换词 | 点击气泡换下一条随机句 |
+| 双音效 | 雷达自动戴盆静音，避免喂食音 + 落头音连响 |
+| 戴盆 Q 弹 | 头上有 ≥1 个铁盆时单击不弹 |
+
 ## v2.6.3 的变化（相对 v2.6.2）
 
 | 项 | v2.6.3 |

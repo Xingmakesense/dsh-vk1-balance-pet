@@ -359,7 +359,7 @@
     '.dshvk1-bubble{display:flex;flex-direction:column;align-items:center;gap:3px;position:absolute;transform:translate(-50%,-100%);' +
       'max-width:min(280px,64vw);padding:5px 9px;border-radius:9px;box-sizing:border-box;' +
       'background:rgba(20,28,46,.92);color:#eaf1ff;font:12px/1.45 system-ui,sans-serif;border:1px solid rgba(158,182,224,.45);' +
-      'box-shadow:0 4px 14px rgba(0,0,0,.32);pointer-events:none;z-index:10006}',
+      'box-shadow:0 4px 14px rgba(0,0,0,.32);pointer-events:auto;cursor:pointer;z-index:10006}',
     // 立绘缺失时的兜底：藏掉表情层，给角色区域一块圆角底板 + 面板底色
     '.dshvk1-root.dshvk1-art-missing .dshvk1-face{display:none!important}',
     '.dshvk1-root.dshvk1-art-missing .dshvk1-body{background:rgba(26,33,50,.92);border:1px solid rgba(120,140,180,.5);border-radius:14px}',
@@ -379,7 +379,9 @@
       '-webkit-mask-size:100% 100%;-webkit-mask-repeat:no-repeat;mask-size:100% 100%;mask-repeat:no-repeat}',
     '.dshvk1-panel{position:absolute;left:0;top:0;transform-origin:0 0;pointer-events:none;text-align:center}',
     // 无平板立绘（board: rect）：自己画一块深色圆角底板，文字放在板上
-    '.dshvk1-root.dshvk1-board-badge .dshvk1-panel{background:linear-gradient(180deg,rgba(24,30,46,.95),rgba(10,14,24,.95));' +
+    // 有气泡的皮肤不再画大黑板：面板整体隐藏（余额由常驻气泡显示）
+    '.dshvk1-root.dshvk1-board-badge .dshvk1-panel,' +
+      '.dshvk1-root.dshvk1-board-rect .dshvk1-panel{display:none!important}',
       'border:1px solid rgba(120,140,180,.55);border-radius:9px;padding:4px 6px;box-sizing:border-box;' +
       'display:flex;flex-direction:column;align-items:center;gap:1px;box-shadow:0 4px 14px rgba(0,0,0,.45);position:absolute}',
     '.dshvk1-root.dshvk1-board-badge .dshvk1-label{position:static;height:auto;font-size:calc(var(--dshvk1-ph) * 0.34);opacity:.85}',
@@ -403,7 +405,8 @@
     '.dshvk1-btn{position:absolute;top:4px;right:4px;width:26px;height:26px;border:none;border-radius:7px;background:rgba(32,49,112,.86);color:#fff;' +
       'font-size:16px;line-height:1;cursor:pointer;padding:0;pointer-events:none;opacity:0;transition:opacity .15s ease;z-index:2}',
     '.dshvk1-btn.dshvk1-btn-on{opacity:1;pointer-events:auto}',
-    '.dshvk1-root.dshvk1-mirror .dshvk1-btn{left:auto;right:4px}',
+    // ⋯ 按钮：处于「可左吸附」状态时贴左，处于「可右吸附」状态时贴右（由 layout() 打 class 决定）
+    '.dshvk1-root.dshvk1-btn-right .dshvk1-btn{left:auto;right:4px}',
     '.dshvk1-btn:hover{background:#203170}',
     '.dshvk1-menu{position:fixed;min-width:206px;max-width:min(260px,calc(100vw - 8px));max-height:82vh;overflow:auto;background:var(--dsw-alias-bg-overlay,#fff);border:1px solid var(--dsw-alias-border-l2,rgba(32,49,112,.35));' +
       'border-radius:9px;padding:4px;box-shadow:0 8px 24px rgba(0,0,0,.18);z-index:10002;display:none;color-scheme:light dark}',
@@ -606,6 +609,8 @@
     root.style.setProperty('--dshvk1-s', state.size + 'px')
     var flip = mirrored()
     root.classList.toggle('dshvk1-mirror', flip)
+    // ⋯ 按钮跟随「哪一侧正处于吸附区」：左吸附 → 贴左；右吸附 → 贴右
+    root.classList.toggle('dshvk1-btn-right', btnOnRight())
     var q = quad()
     var P = q.P
     if (q.lw < 8 || q.lh < 8) return
@@ -665,19 +670,31 @@
   bubbleGifEl.addEventListener('error', function () { bubbleGifEl.classList.remove('dshvk1-gif-on') })
   bubbleEl.appendChild(bubbleGifEl)
   stage.appendChild(bubbleEl)
+  // 单击角色冒出的气泡：再点它 → 换下一条随机句
+  bubbleEl.addEventListener('pointerdown', function (e) { e.stopPropagation() })
+  bubbleEl.addEventListener('click', function (e) { e.stopPropagation(); cycleBubbleWord() })
 
   // 常驻余额气泡：非「控制台原生」皮肤用它显示余额（不占 cost/idle 队列，也不会被临时提示顶掉）
   var balanceBubbleEl = document.createElement('div')
   balanceBubbleEl.className = 'dshvk1-balancebubble'
   balanceBubbleEl.style.display = 'none'
   stage.appendChild(balanceBubbleEl)
+  // 点常驻气泡也换随机词（气泡可点击后，右键菜单仍走角色本体）
+  balanceBubbleEl.addEventListener('pointerdown', function (e) {
+    e.stopPropagation()
+  })
+  balanceBubbleEl.addEventListener('click', function (e) {
+    e.stopPropagation()
+    cycleBubbleWord()
+  })
   function updateBalanceBubble() {
     if (!boardlessBalance() || state.bubbleOn === false) {
       balanceBubbleEl.style.display = 'none'
       return
     }
     var v = drawnBalance()
-    var text = isFinite(v) ? ('\u00A5' + v.toFixed(2)) : '\u00A5--'
+    // 文案写完整：DSH 余额 + 金额（原来只有一个 ¥3.22）
+    var text = 'DSH 余额 ' + (isFinite(v) ? ('¥' + v.toFixed(2)) : '¥--')
     var textChanged = balanceBubbleEl.textContent !== text
     if (textChanged) balanceBubbleEl.textContent = text
     if (balanceBubbleEl.style.display !== 'block') balanceBubbleEl.style.display = 'block'
@@ -709,6 +726,27 @@
   // 统一的「气泡贴边」算法：
   //   贴左吸附 → 气泡左缘对齐角色左缘；贴右吸附 → 右缘对齐角色右缘；自由摆放 → 居中。
   //   竖直方向再留 offsetY 的余量，避免和别的气泡/铁盆压在一起。
+  // 点气泡 → 换一条随机句（单击角色已经弹出一条，再点它就轮换）
+  function cycleBubbleWord() {
+    if (!state.bubbleOn) return
+    // 正在显示 idle 词时，直接替换当前文本；否则新冒一条
+    if (bubbleChannel === 'idle' && bubbleShownT < BUBBLE_DUR) {
+      var next = pickIdleWord()
+      bubbleText = next
+      bubbleTextEl.textContent = next
+      bubbleShownT = 0
+      return
+    }
+    showBubble(pickIdleWord(), false, 'idle')
+  }
+
+  // 按钮该贴右边吗？右吸附态 → 是；左吸附态 → 否；自由摆放 → 看中心在翻转线哪一侧
+  function btnOnRight() {
+    if (state.h === 'right') return true
+    if (state.h === 'left') return false
+    return (state.left + state.size / 2) > snapBounds(viewport()).F
+  }
+
   function placeBubble(el, offsetY) {
     if (!el) return
     var w = el.offsetWidth || 120
@@ -1119,7 +1157,8 @@
       // 雷达磁吸把盆送进嘴里 → 铁盆直接扣在头上（不用再等它自己落到头顶）。
       dropIronPot(state.left + state.size * 0.5558, state.top + state.size * 0.20)
       var fresh = state.bowls[state.bowls.length - 1]
-      if (fresh && fresh.iron && !fresh.onHead) attachIronPot(fresh)
+      // 自动戴盆时静音：这一口已经播过 feed 音，再响一次落头音就会「两声」
+      if (fresh && fresh.iron && !fresh.onHead) attachIronPot(fresh, true)
     } else {
       dropIronPot(bowl.X, bowl.Y)
     }
@@ -1210,7 +1249,17 @@
     var halfH = state.size * 0.18
     return rimX > cx - halfW && rimX < cx + halfW && rimY > cy - halfH && rimY < cy + halfH
   }
-  function attachIronPot(p) {
+  // silent=true：不播「铁盆落头」音（雷达自动戴盆时用，避免与喂食音重复）
+  // 头上是否戴着铁盆（≥1）：戴着的时候单击不做 Q 弹
+  function hasWornPot() {
+    for (var i = 0; i < state.bowls.length; i++) {
+      var b = state.bowls[i]
+      if (b.iron && b.onHead && b.fadeT <= 0) return true
+    }
+    return false
+  }
+
+  function attachIronPot(p, silent) {
     // 铁盆落头与单击 Q 弹都写 body transform，同时播会互相覆盖 → 戴盆时直接结束弹跳。
     state.clickJumpT = CLICK_JUMP_DUR
     p.wornOrder = ++wornSequence
@@ -1234,7 +1283,7 @@
     p.el.style.height = worn.h + 'px'
     // 铁盆扣头不再播 Q 弹（头顶挤压动画关掉，只保留音效与落位）
     state.headSquashT = HEAD_SQUASH_DUR
-    playPool(landPool)
+    if (!silent) playPool(landPool)
     trimIronStack()
   }
 
@@ -2379,9 +2428,11 @@
     removeDragListeners()
     swallowNextClick(400)
     if (!d.moved) {
+      // 头顶有铁盆（≥1）时不做 Q 弹：戴盆和弹跳两套 transform 会互相打架
+      var wornPot = hasWornPot()
       // 单击角色：Q 弹 + 音效 + 气泡。
       // ⚠️ 这里不能用 poll(true)：snap 会清空场上没喂的饭盆（旧版单击就把它们重置了）。
-      state.clickJumpT = 0
+      if (!wornPot) state.clickJumpT = 0
       if (state.clickSoundOn !== false) playPool(clickPool)
       // 单击冒的是**随机句子**（与自动冒词同一个池），不是提醒词模板。
       // 仍然只在没有别的气泡显示/排队时开口，避免顶掉本轮消耗提示。
@@ -2793,7 +2844,10 @@
     '.dshvk1-num{width:74px;padding:2px 5px;background:var(--vk-card);border:1px solid var(--vk-border);border-radius:5px;font-size:12px;text-align:right}',
     '.dshvk1-range{width:130px;max-width:46vw;accent-color:var(--vk-accent)}',
     '.dshvk1-actions{display:flex;flex-wrap:wrap;gap:5px;margin:6px 0}',
-    '.dshvk1-balancebubble{position:absolute;transform:translate(-50%,-100%);padding:3px 8px;border-radius:8px;' +
+    '.dshvk1-balancebubble{position:absolute;transform:translate(-50%,-100%);padding:4px 9px;border-radius:8px;' +
+      'background:rgba(20,28,46,.9);color:#eaf1ff;font:12px/1.35 system-ui,sans-serif;' +
+      'border:1px solid rgba(158,182,224,.45);box-shadow:0 3px 10px rgba(0,0,0,.3);' +
+      'pointer-events:auto;cursor:pointer;white-space:nowrap;z-index:10007}',
       'background:rgba(20,28,46,.9);color:#eaf1ff;font:12px/1.3 system-ui,sans-serif;' +
       'border:1px solid rgba(158,182,224,.45);box-shadow:0 3px 10px rgba(0,0,0,.3);' +
       'pointer-events:none;white-space:nowrap;z-index:10007}',
