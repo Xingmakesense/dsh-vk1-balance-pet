@@ -1,5 +1,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
+import os from 'node:os'
+const require$os = os
 import { fileURLToPath } from 'node:url'
 
 // ============================================================================
@@ -60,35 +62,35 @@ function costOf(usage, model) {
   return Math.round(yuan * 1e6) / 1e6
 }
 
-// path -> [file, content-type]
-const ASSET_ROUTES = {
-  '/dsh-vk1/expression_11.png': ['expression_11.png', 'image/png'],
-  '/dsh-vk1/expression_12.png': ['expression_12.png', 'image/png'],
-  '/dsh-vk1/expression_21.png': ['expression_21.png', 'image/png'],
-  '/dsh-vk1/expression_22.png': ['expression_22.png', 'image/png'],
-  '/dsh-vk1/rice.png': ['rice.png', 'image/png'],
-  '/dsh-vk1/iron_bowl.png': ['iron_bowl.png', 'image/png'],
-  '/dsh-vk1/hit.mp3': ['hit.mp3', 'audio/mpeg'],
-  '/dsh-vk1/feed.mp3': ['feed.mp3', 'audio/mpeg'],
-  '/dsh-vk1/pot_land.mp3': ['pot_land.mp3', 'audio/mpeg'],
-  '/dsh-vk1/pot_off.mp3': ['pot_off.mp3', 'audio/mpeg'],
-  // 音效包素材（dsh-whale-widget assets，MIT）：小黄鸭按/松、经验球、每轮消耗提示音
-  '/dsh-vk1/duck_press.mp3': ['duck_press.mp3', 'audio/mpeg'],
-  '/dsh-vk1/duck_release.mp3': ['duck_release.mp3', 'audio/mpeg'],
-  '/dsh-vk1/orb.wav': ['orb.wav', 'audio/wav'],
-  '/dsh-vk1/cost.wav': ['cost.wav', 'audio/wav'],
-  // 任务结束音（每轮结束）：dsh-whale-widget assets/task-end-a.wav，MIT
-  '/dsh-vk1/task_end.wav': ['task_end.wav', 'audio/wav'],
-  // 第三种音效包（D1·D2）与装饰动图 / 备用立绘：全部来自 dsh-whale-widget assets（MIT）
-  '/dsh-vk1/fx1_press.mp3': ['fx1_press.mp3', 'audio/mpeg'],
-  '/dsh-vk1/fx1_release.mp3': ['fx1_release.mp3', 'audio/mpeg'],
-  '/dsh-vk1/rua.gif': ['rua.gif', 'image/gif'],
-  '/dsh-vk1/bubble_petpet.gif': ['bubble_petpet.gif', 'image/gif'],
-  '/dsh-vk1/bubble_money.gif': ['bubble_money.gif', 'image/gif'],
-  '/dsh-vk1/skin_dsniang1.png': ['skin_dsniang1.png', 'image/png'],
-  ...Object.fromEntries(Array.from({ length: 5 }, (_, i) =>
-    [`/dsh-vk1/pat_hand_${i}.png`, [`pat_hand_${i}.png`, 'image/png']])),
+// ── 资源声明表（唯一来源）────────────────────────────────────────────
+// key = 对外文件名（/dsh-vk1/<name>），value = 磁盘文件名 + MIME。
+// 新增素材只改这一张表；/resources.json 也直接由它生成，不会两边漂移。
+const RESOURCES = {
+  'expression_11.png': ['expression_11.png', 'image/png'],
+  'expression_12.png': ['expression_12.png', 'image/png'],
+  'expression_21.png': ['expression_21.png', 'image/png'],
+  'expression_22.png': ['expression_22.png', 'image/png'],
+  'rice.png': ['rice.png', 'image/png'],
+  'iron_bowl.png': ['iron_bowl.png', 'image/png'],
+  'hit.mp3': ['hit.mp3', 'audio/mpeg'],
+  'feed.mp3': ['feed.mp3', 'audio/mpeg'],
+  'pot_land.mp3': ['pot_land.mp3', 'audio/mpeg'],
+  'pot_off.mp3': ['pot_off.mp3', 'audio/mpeg'],
+  'duck_press.mp3': ['duck_press.mp3', 'audio/mpeg'],
+  'duck_release.mp3': ['duck_release.mp3', 'audio/mpeg'],
+  'orb.wav': ['orb.wav', 'audio/wav'],
+  'cost.wav': ['cost.wav', 'audio/wav'],
+  'task_end.wav': ['task_end.wav', 'audio/wav'],
+  'fx1_press.mp3': ['fx1_press.mp3', 'audio/mpeg'],
+  'fx1_release.mp3': ['fx1_release.mp3', 'audio/mpeg'],
+  'rua.gif': ['rua.gif', 'image/gif'],
+  'bubble_petpet.gif': ['bubble_petpet.gif', 'image/gif'],
+  'bubble_money.gif': ['bubble_money.gif', 'image/gif'],
+  'skin_dsniang1.png': ['skin_dsniang1.png', 'image/png'],
 }
+for (let i = 0; i < 5; i++) RESOURCES['pat_hand_' + i + '.png'] = ['pat_hand_' + i + '.png', 'image/png']
+// 兼容旧变量名（外部只读，不用于注册路由）
+const ASSET_ROUTES = RESOURCES
 
 // 桌面端（Electron）结构化注入行：必须是**内联** script 行。桌面壳从静态 dist 直出，
 // tapIndex 永远不生效；而 `script-src` 行在加载失败时会 reject 掉 __DSH_BOOT_READY__，
@@ -334,22 +336,25 @@ function apply(root) {
       return balanceInFlight
     }
 
-    for (const [routePath, [file, type]] of Object.entries(ASSET_ROUTES)) {
-      disposers.push(ctx.webServer.register({
-        kind: 'exact',
-        path: routePath,
-        handler: (req, res) => {
-          try {
-            const bytes = readAsset(file)
-            res.writeHead(200, { 'Content-Type': type, 'Cache-Control': 'no-store', 'Content-Length': String(bytes.length) })
-            res.end(bytes)
-          } catch (err) {
-            res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' })
-            res.end(file + ' unavailable')
-          }
-        },
-      }))
-    }
+    // 资源：一条 prefix 路由，从 RESOURCES 查表；未知名字直接 404
+    disposers.push(ctx.webServer.register({
+      kind: 'prefix',
+      path: '/dsh-vk1/',
+      handler: (req, res) => {
+        const name = String(req.url || '').split('?')[0].replace(/^\/dsh-vk1\//, '')
+        // 只允许表里登记过的文件名（防目录穿越）
+        const entry = Object.prototype.hasOwnProperty.call(RESOURCES, name) ? RESOURCES[name] : null
+        if (!entry) { res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' }); res.end('not found'); return }
+        try {
+          const bytes = readAsset(entry[0])
+          res.writeHead(200, { 'Content-Type': entry[1], 'Cache-Control': 'no-store', 'Content-Length': String(bytes.length) })
+          res.end(bytes)
+        } catch (err) {
+          res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' })
+          res.end(entry[0] + ' unavailable')
+        }
+      },
+    }))
 
     disposers.push(ctx.webServer.register({
       kind: 'exact',
@@ -367,6 +372,51 @@ function apply(root) {
         } catch (err) {
           res.writeHead(200, JSON_HEADERS)
           res.end(JSON.stringify({ ok: false, code: 'ERROR', error: String((err && err.message) || err).slice(0, 200), version: VERSION }))
+        }
+      },
+    }))
+
+    // 默认配置：客户端把「当前生效的设置」POST 上来，落盘为 defaults.json；
+    // 新装（或清了 localStorage）时 GET 拿回这份作为初始值 —— 也就是「以我现在的配置为默认」。
+    const DEFAULTS_FILE = path.join(process.env.DSH_HOME || path.join(require$os.homedir(), '.dsh'), 'storages', 'dsh-vk1-balance-pet', 'defaults.json')
+    function readDefaults() {
+      try { return JSON.parse(fs.readFileSync(DEFAULTS_FILE, 'utf8')) } catch (err) { return null }
+    }
+    function writeDefaults(body) {
+      try {
+        fs.mkdirSync(path.dirname(DEFAULTS_FILE), { recursive: true })
+        const tmp = DEFAULTS_FILE + '.' + process.pid + '.tmp'
+        fs.writeFileSync(tmp, JSON.stringify(body, null, 2) + "\n", "utf8")
+        fs.renameSync(tmp, DEFAULTS_FILE)
+        return true
+      } catch (err) { return false }
+    }
+    disposers.push(ctx.webServer.register({
+      kind: 'exact',
+      path: '/dsh-vk1/defaults.json',
+      handler: async (req, res) => {
+        if (req.method === 'GET' || req.method === 'HEAD') {
+          res.writeHead(200, JSON_HEADERS)
+          res.end(JSON.stringify({ ok: true, defaults: readDefaults() }))
+          return
+        }
+        if (req.method !== 'POST') { res.writeHead(405, JSON_HEADERS); res.end('{}'); return }
+        try {
+          const chunks = []
+          let size = 0
+          for await (const chunk of req) {
+            size += chunk.length
+            if (size > 64 * 1024) { res.writeHead(413, JSON_HEADERS); res.end(JSON.stringify({ ok: false, error: 'payload too large' })); return }
+            chunks.push(chunk)
+          }
+          const body = JSON.parse(Buffer.concat(chunks).toString('utf8'))
+          if (!body || typeof body !== 'object') throw new Error('bad body')
+          const ok = writeDefaults(body)
+          res.writeHead(ok ? 200 : 500, JSON_HEADERS)
+          res.end(JSON.stringify({ ok }))
+        } catch (err) {
+          res.writeHead(400, JSON_HEADERS)
+          res.end(JSON.stringify({ ok: false, error: String((err && err.message) || err) }))
         }
       },
     }))
@@ -391,11 +441,19 @@ function apply(root) {
       handler: (req, res) => {
         try {
           const provenance = JSON.parse(fs.readFileSync(path.join(PACKAGE_ROOT, 'asset-sources.json'), 'utf8'))
-          const items = provenance.assets.map((a) => ({
-            file: a.file, bytes: a.bytes, source: a.source || '', processing: a.processing || '',
-            mime: a.mime || (a.file.endsWith('.png') ? 'image/png' : a.file.endsWith('.mp3') ? 'audio/mpeg' : 'audio/wav'),
-            width: a.width || null, height: a.height || null,
-          }))
+          const meta = new Map(provenance.assets.map((a) => [a.file, a]))
+          // 清单以 RESOURCES（实际分发的唯一来源）为准；asset-sources 只补来源/尺寸元数据
+          const items = Object.keys(RESOURCES).map((name) => {
+            const [file, mime] = RESOURCES[name]
+            const a = meta.get(file) || {}
+            let bytes = a.bytes || 0
+            if (!bytes) { try { bytes = fs.statSync(path.join(ASSETS, file)).size } catch (err) {} }
+            return {
+              file: name, bytes, source: a.source || '', processing: a.processing || '',
+              mime: a.mime || mime,
+              width: a.width || null, height: a.height || null,
+            }
+          })
           const total = items.reduce((sum, it) => sum + (it.bytes || 0), 0)
           res.writeHead(200, JSON_HEADERS)
           res.end(JSON.stringify({ ok: true, count: items.length, totalBytes: total, items }))

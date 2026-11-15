@@ -80,18 +80,15 @@ injected[0].cb(table)
 assert.equal(table.length, 1, '注入行必须去重')
 
 // ② 路由清单
+// 资源现在是「一条 prefix 路由 + RESOURCES 表」，先确认 prefix 存在
+const prefixRoute = routes.get('/dsh-vk1/')
+assert.ok(prefixRoute, 'missing prefix resource route /dsh-vk1/')
 for (const p of [
   '/dsh-vk1/balance.json', '/dsh-vk1/widget.js',
-  '/dsh-vk1/expression_11.png', '/dsh-vk1/expression_12.png',
-  '/dsh-vk1/expression_21.png', '/dsh-vk1/expression_22.png',
-  '/dsh-vk1/rice.png', '/dsh-vk1/iron_bowl.png',
-  '/dsh-vk1/hit.mp3', '/dsh-vk1/feed.mp3', '/dsh-vk1/pot_land.mp3', '/dsh-vk1/pot_off.mp3',
-  '/dsh-vk1/pat_hand_0.png', '/dsh-vk1/pat_hand_1.png', '/dsh-vk1/pat_hand_2.png',
-  '/dsh-vk1/pat_hand_3.png', '/dsh-vk1/pat_hand_4.png',
-  '/dsh-vk1/duck_press.mp3', '/dsh-vk1/duck_release.mp3', '/dsh-vk1/orb.wav', '/dsh-vk1/cost.wav',
-  '/dsh-vk1/last-turn.json', '/dsh-vk1/resources.json', '/dsh-vk1/task_end.wav', '/dsh-vk1/fx1_press.mp3', '/dsh-vk1/fx1_release.mp3', '/dsh-vk1/rua.gif', '/dsh-vk1/skin_dsniang1.png',
+  '/dsh-vk1/last-turn.json', '/dsh-vk1/resources.json', '/dsh-vk1/defaults.json',
 ]) assert.ok(routes.has(p), 'missing route ' + p)
 
+// 资源逐个过 prefix 路由（等价于以前的 exact 路由）
 function fakeRes() {
   return {
     statusCode: 0, headers: {}, body: null,
@@ -99,13 +96,37 @@ function fakeRes() {
     end(b) { this.body = b },
   }
 }
-
-// ③ 素材可服务
-for (const p of ['/dsh-vk1/widget.js', '/dsh-vk1/expression_11.png', '/dsh-vk1/iron_bowl.png', '/dsh-vk1/hit.mp3']) {
+for (const name of [
+  'expression_11.png', 'expression_12.png', 'expression_21.png', 'expression_22.png',
+  'rice.png', 'iron_bowl.png', 'hit.mp3', 'feed.mp3', 'pot_land.mp3', 'pot_off.mp3',
+  'duck_press.mp3', 'duck_release.mp3', 'orb.wav', 'cost.wav', 'task_end.wav',
+  'fx1_press.mp3', 'fx1_release.mp3', 'rua.gif', 'bubble_petpet.gif', 'bubble_money.gif',
+  'skin_dsniang1.png', 'pat_hand_0.png', 'pat_hand_4.png',
+]) {
   const res = fakeRes()
-  await routes.get(p).handler({}, res)
-  assert.equal(res.statusCode, 200, p)
-  assert.ok(res.body.length > 1000, p)
+  await prefixRoute.handler({ url: '/dsh-vk1/' + name }, res)
+  assert.equal(res.statusCode, 200, 'resource ' + name)
+  assert.ok(res.body && res.body.length > 500, 'resource body ' + name)
+}
+for (const bad of ['../package.json', 'nope.png', 'index-v2.js']) {
+  const res = fakeRes()
+  await prefixRoute.handler({ url: '/dsh-vk1/' + bad }, res)
+  assert.equal(res.statusCode, 404, 'must reject ' + bad)
+}
+
+
+// ③ 素材可服务（走 prefix 路由）
+for (const name of ['expression_11.png', 'iron_bowl.png', 'hit.mp3']) {
+  const res = fakeRes()
+  await prefixRoute.handler({ url: '/dsh-vk1/' + name }, res)
+  assert.equal(res.statusCode, 200, name)
+  assert.ok(res.body.length > 1000, name)
+}
+{
+  const res = fakeRes()
+  await routes.get('/dsh-vk1/widget.js').handler({}, res)
+  assert.equal(res.statusCode, 200, 'widget.js')
+  assert.ok(res.body.length > 1000)
 }
 
 // ④ 余额失败：结构化错误 + 版本号，绝无 5xx
@@ -144,10 +165,10 @@ for (const p of ['/dsh-vk1/widget.js', '/dsh-vk1/expression_11.png', '/dsh-vk1/i
   await routes.get('/dsh-vk1/resources.json').handler({}, rres)
   const rp = JSON.parse(rres.body)
   assert.equal(rp.ok, true)
-  assert.ok(rp.count >= 19, '资源清单应覆盖随包素材，实际 ' + rp.count)
+  assert.ok(rp.count >= 26, '资源清单应覆盖随包素材，实际 ' + rp.count)
   assert.ok(rp.totalBytes > 1000)
   const files = rp.items.map((it) => it.file)
-  for (const f of ['duck_press.mp3', 'orb.wav', 'expression_11.png']) assert.ok(files.includes(f), '资源缺 ' + f)
+  for (const f of ['duck_press.mp3', 'orb.wav', 'expression_11.png', 'task_end.wav', 'bubble_money.gif', 'skin_dsniang1.png']) assert.ok(files.includes(f), '资源缺 ' + f)
 }
 
 // ⑥ 响应头安全：不带 CORS 通配

@@ -90,8 +90,9 @@ function fixture(saved = {}) {
     updateBowls, makeTick, frame, snapBounds, snapZones, settle, saveAnchor, applyAnchorPos,
     applySize, setScale, stepToScale, scaleToStep, baseSizePx, setDropInterval, restartDropTimer, CLICK_JUMP_DUR,
     updateRadar, buildMenu, openMenu, closeMenu,
-    isHit, onDocClick, swallowNextClick, applySoundPack, SOUND_PACKS, showBubble, pickReminder, tickBubble, SKINS, skinOf, applySkin,
+    isHit, onDocClick, swallowNextClick, applySoundPack, SOUND_PACKS, showBubble, pickReminder, tickBubble, SKINS, skinOf, applySkin, playPool, CUE_SOUND_GAP_MS,
     getCuePools() { return cuePools },
+    bubbleTextNow() { return bubbleText },
     ready() { hitReady = true },
     stepValue, STEP_DEFAULT, STEP_MIN, STEP_MAX,
     DROP_INTERVAL_DEFAULT_S, DROP_INTERVAL_MIN_S, DROP_INTERVAL_MAX_S, SCALE_MIN, SCALE_MAX, SCALE_STEPS,
@@ -378,4 +379,25 @@ function fixture(saved = {}) {
   t.stop()
 }
 
-console.log('behavior: WIDGET OK — 15 groups')
+// ⑯ 气泡分通道：cost 与 idle 互不覆盖（cost 优先）
+{
+  const t = fixture()
+  t.state.bubbleOn = true
+  t.state.idleBubbleOn = true
+  t.showBubble('cost-1', false, 'cost')
+  t.showBubble('idle-1', false, 'idle')
+  t.tickBubble(0.1)
+  assert.equal(t.bubbleTextNow(), 'cost-1', 'cost 通道优先显示')
+  t.stop()
+}
+
+// ⑰ 音效节流：700ms 内同槽只响一次（修复扣血音效连响）
+{
+  const t = fixture()
+  assert.equal(t.CUE_SOUND_GAP_MS, 700)
+  // 只验证常量与函数存在（Audio 桩不真正出声）
+  assert.equal(typeof t.playPool, 'function')
+  t.stop()
+}
+
+console.log('behavior: WIDGET OK — 17 groups')

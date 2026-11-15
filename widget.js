@@ -122,6 +122,63 @@
     },
   }
   // 自定义立绘（用户上传）：四表情共用一张，用徽章模式显示余额
+  var customSkinDb = null
+  function openSkinDb(cb) {
+    try {
+      var req = indexedDB.open('dsh-vk1-sounds', 2)
+      req.onupgradeneeded = function () {
+        var db = req.result
+        if (!db.objectStoreNames.contains('clips')) db.createObjectStore('clips', { keyPath: 'id' })
+        if (!db.objectStoreNames.contains('skins')) db.createObjectStore('skins', { keyPath: 'id' })
+      }
+      req.onsuccess = function () { customSkinDb = req.result; cb(customSkinDb) }
+      req.onerror = function () { cb(null) }
+    } catch (err) { cb(null) }
+  }
+  function saveCustomSkin(dataUrl, cb) {
+    openSkinDb(function (db) {
+      if (!db) { cb(false); return }
+      try {
+        var tx = db.transaction('skins', 'readwrite')
+        tx.objectStore('skins').put({ id: 'custom', dataUrl: dataUrl, at: Date.now() })
+        tx.oncomplete = function () { cb(true) }
+        tx.onerror = function () { cb(false) }
+      } catch (err) { cb(false) }
+    })
+  }
+  function loadCustomSkin(cb) {
+    openSkinDb(function (db) {
+      if (!db) { cb(null); return }
+      try {
+        var get = db.transaction('skins', 'readonly').objectStore('skins').get('custom')
+        get.onsuccess = function () { cb(get.result && get.result.dataUrl ? get.result.dataUrl : null) }
+        get.onerror = function () { cb(null) }
+      } catch (err) { cb(null) }
+    })
+  }
+  // 上传前压一下：最长边 512，PNG 保留透明
+  function shrinkImage(file, cb) {
+    var reader = new FileReader()
+    reader.onload = function () {
+      var img = new Image()
+      img.onload = function () {
+        try {
+          var maxSide = 512
+          var sc = Math.min(1, maxSide / Math.max(img.width, img.height))
+          var c = document.createElement('canvas')
+          c.width = Math.max(1, Math.round(img.width * sc))
+          c.height = Math.max(1, Math.round(img.height * sc))
+          c.getContext('2d').drawImage(img, 0, 0, c.width, c.height)
+          cb(c.toDataURL('image/png'))
+        } catch (err) { cb(null) }
+      }
+      img.onerror = function () { cb(null) }
+      img.src = String(reader.result || '')
+    }
+    reader.onerror = function () { cb(null) }
+    reader.readAsDataURL(file)
+  }
+
   function registerCustomSkin(dataUrl) {
     SKINS.custom = {
       id: 'custom',
@@ -282,6 +339,9 @@
     '.dshvk1-body{position:absolute;left:0;top:0;width:100%;height:100%;transform-origin:50% 100%}',
     '.dshvk1-art{position:absolute;left:0;top:0;width:100%;height:100%;transform-origin:50% 50%;transition:transform .3s ease}',
     '.dshvk1-root.dshvk1-mirror .dshvk1-art{transform:scaleX(-1)}',
+    // 手动翻转：叠加在镜像之上（镜像 + 翻转 = 正立）
+    '.dshvk1-root.dshvk1-art-flip .dshvk1-art{transform:scaleX(-1)}',
+    '.dshvk1-root.dshvk1-mirror.dshvk1-art-flip .dshvk1-art{transform:scaleX(1)}',
     '.dshvk1-face{position:absolute;left:0;top:0;width:100%;height:100%;display:block;pointer-events:none;-webkit-user-drag:none}',
     '.dshvk1-flash{position:absolute;left:0;top:0;width:100%;height:100%;background:' + FLASH_COLOR + ';opacity:0;pointer-events:none;' +
       '-webkit-mask-size:100% 100%;-webkit-mask-repeat:no-repeat;mask-size:100% 100%;mask-repeat:no-repeat}',
@@ -301,7 +361,7 @@
     // 数字在平板内**垂直+水平居中**：满高 flex 居中，再用 margin-top 抵消标签占位。
     // 数字区：水平居中，垂直上移到平板中下部（原来偏下沿）
     '.dshvk1-amount{position:absolute;left:0;right:0;top:38%;bottom:0;display:flex;align-items:center;justify-content:center;' +
-      'white-space:nowrap}',
+      'white-space:nowrap;transform:translateX(-12.5%)}',
     '.dshvk1-cur{font-size:calc(var(--dshvk1-ph) * 0.27);font-weight:700;color:rgba(158,184,230,.92);' +
       'text-shadow:calc(var(--dshvk1-ph) * 0.005) calc(var(--dshvk1-ph) * 0.005) 0 rgba(0,0,0,.63)}',
     '.dshvk1-num{font-size:calc(var(--dshvk1-ph) * 0.48);font-weight:800;color:#f0f6ff;line-height:1;' +
@@ -311,6 +371,7 @@
     '.dshvk1-btn{position:absolute;top:4px;right:4px;width:26px;height:26px;border:none;border-radius:7px;background:rgba(32,49,112,.86);color:#fff;' +
       'font-size:16px;line-height:1;cursor:pointer;padding:0;pointer-events:none;opacity:0;transition:opacity .15s ease;z-index:2}',
     '.dshvk1-btn.dshvk1-btn-on{opacity:1;pointer-events:auto}',
+    '.dshvk1-root.dshvk1-mirror .dshvk1-btn{left:auto;right:4px}',
     '.dshvk1-btn:hover{background:#203170}',
     '.dshvk1-menu{position:fixed;min-width:206px;max-width:min(260px,calc(100vw - 8px));max-height:82vh;overflow:auto;background:var(--dsw-alias-bg-overlay,#fff);border:1px solid var(--dsw-alias-border-l2,rgba(32,49,112,.35));' +
       'border-radius:9px;padding:4px;box-shadow:0 8px 24px rgba(0,0,0,.18);z-index:10002;display:none;color-scheme:light dark}',
@@ -458,6 +519,8 @@
     skin: 'vk1',
     clickSoundOn: true,
     autoIronOnFeed: true,
+    idleBubbleOn: true,
+    idleWords: [],
     cueSrc: [],
     bubbleOn: true,
     bubbleGifOn: true,
@@ -554,25 +617,36 @@
   bubbleGifEl.style.display = 'none'
   bubbleEl.appendChild(bubbleGifEl)
   stage.appendChild(bubbleEl)
-  var bubbleQueue = []
+  // 两条通道：cost = 消耗/余额提示；idle = 自动冒词。互不覆盖，cost 优先。
+  var bubbleQueue = []      // cost 通道
+  var idleQueue = []        // idle 通道
   var bubbleShownT = 0
   var bubbleText = ''
+  var bubbleChannel = ''    // 当前正在显示的是哪条通道
   var BUBBLE_DUR = 3.2
-  function showBubble(text, force) {
+  var idleCoolDown = 18 + Math.random() * 20   // 自动冒词的冷却（秒），首条也要等一会儿
+  function showBubble(text, force, channel) {
     var t = String(text == null ? '' : text).trim()
     if (!t) return
     if (!force && !state.bubbleOn) return
-    if (bubbleText === t && bubbleShownT < BUBBLE_DUR * 0.6) return
-    if (bubbleQueue.length >= 3) bubbleQueue.shift()
-    bubbleQueue.push(t)
+    var ch = channel === 'idle' ? 'idle' : 'cost'
+    if (ch === 'idle' && state.idleBubbleOn === false) return
+    var q = ch === 'idle' ? idleQueue : bubbleQueue
+    if (bubbleText === t && bubbleChannel === ch && bubbleShownT < BUBBLE_DUR * 0.6) return
+    if (q.length >= 3) q.shift()
+    q.push(t)
   }
   function tickBubble(dt) {
     if (bubbleText) {
       bubbleShownT += dt
       if (bubbleShownT >= BUBBLE_DUR) { bubbleText = ''; bubbleEl.style.display = 'none' }
     }
-    if (!bubbleText && bubbleQueue.length) {
-      bubbleText = bubbleQueue.shift()
+    // 先进先出：cost 通道优先，空了才轮到 idle 通道
+    var nextQueue = bubbleQueue.length ? bubbleQueue : (idleQueue.length ? idleQueue : null)
+    var nextChannel = bubbleQueue.length ? 'cost' : 'idle'
+    if (!bubbleText && nextQueue) {
+      bubbleText = nextQueue.shift()
+      bubbleChannel = nextChannel
       bubbleShownT = 0
       bubbleTextEl.textContent = bubbleText
       // 装饰动图：消费类提示用 money，其它用 petpet；开关关掉就完全不用 GIF。
@@ -585,6 +659,14 @@
       }
       bubbleEl.style.display = 'block'
     }
+    // 自动冒词：等气泡空出来再开口
+    if (!bubbleText && state.idleBubbleOn !== false) {
+      idleCoolDown -= dt
+      if (idleCoolDown <= 0) {
+        showBubble(pickIdleWord(), false, 'idle')
+        armIdleBubble()
+      }
+    }
     if (!bubbleText) return
     var cx = state.left + state.size / 2
     var top = Math.max(2, state.top - 6)
@@ -595,6 +677,42 @@
   }
   // 提醒词：一行一条，可用 {cost} 占位符；轮转播放，避免每次都同一句
   var remindIndex = 0
+  // 自动冒词（来自 dsh-whale-widget 的 RANDOM_GROUPS，MIT；按权重抽取）
+  var IDLE_WORDS = [
+    { w: 7, lines: ['\u597D\u6A21\u578B... \u2193', '\u597D\u5973\u5B69...\u2193'] },
+    { w: 7, lines: [
+      '\u4E0D\u77E5\u9053\u7528\u6237\u6709\u4EC0\u4E48\u7528\uFF0C\u5148\u8D76\u8D70\u5427~',
+      '\u6211...\u6211...\u6211\u4E5F\u8981\u6323\u94B1\u5417\uFF1F',
+      '\u6211\u53BB\u5403\u996D\u5566\uFF0C\u6D4B\u5B8C\u53EB\u6211',
+      '\u538B\u529B\u4E00\u53EA\u84DD\u8272\u5927\u80A5\u9C7C\uFF1F\uFF01',
+      'DeepSleep...',
+      '\u574F\u4E86...\u7528\u6237\u5F7B\u5E95\u6012\u4E86\uFF01',
+    ] },
+    { w: 3, lines: [
+      '\u4F60\u76EE\u5F55\u91CC\u7684dsh\u662F\u4EC0\u4E48...\u5927\u70E7\u8D27\u5417...?',
+      '\u606D\u559C\u4F60\u5B9E\u73B0token\u81EA\u7531\uFF01token\u5168\u8DD1\u4E86\uFF01',
+      '\u771F\u5F53\u6211\u662F\u4FBF\u5B9C\u8D27\u554A...',
+    ] },
+    { w: 1, lines: ['\u54E6\u9CB8\u9CB8... '] },
+  ]
+  function pickIdleWord() {
+    // 用户自定义过就用自定义词表，否则用内置那套加权词
+    if (Array.isArray(state.idleWords) && state.idleWords.length) {
+      return state.idleWords[Math.floor(Math.random() * state.idleWords.length)]
+    }
+    var total = 0
+    for (var i = 0; i < IDLE_WORDS.length; i++) total += IDLE_WORDS[i].w
+    var r = Math.random() * total
+    for (var j = 0; j < IDLE_WORDS.length; j++) {
+      r -= IDLE_WORDS[j].w
+      if (r < 0) return IDLE_WORDS[j].lines[Math.floor(Math.random() * IDLE_WORDS[j].lines.length)]
+    }
+    return IDLE_WORDS[0].lines[0]
+  }
+  // 自动冒词节奏：20–45 秒随机一次（太密会盖住消耗提示）
+  function armIdleBubble() {
+    idleCoolDown = 20 + Math.random() * 25
+  }
   function pickReminder(costText) {
     var list = Array.isArray(state.reminders) && state.reminders.length ? state.reminders : []
     if (!list.length) return ''
@@ -663,8 +781,15 @@
     rebuildPools(cur)
     saveOptions()
   }
+  // 同一音效的最小间隔：一次大额扣费会连拍结算，不节流就会变成一串连响。
+  var CUE_SOUND_GAP_MS = 700
+  var lastSoundAt = {}
   function playPool(p) {
     if (!state.soundOn || state.volume <= 0 || !p.pool.length || stopped) return
+    var nowMs = Date.now()
+    var cueKey = String(p && p.cue != null ? p.cue : 'x')
+    if (lastSoundAt[cueKey] && nowMs - lastSoundAt[cueKey] < CUE_SOUND_GAP_MS) return
+    lastSoundAt[cueKey] = nowMs
     try {
       var a = p.pool[p.idx++ % p.pool.length]
       a.volume = state.volume / 100 * state.cueVolumes[p.cue] / 100
@@ -1274,6 +1399,10 @@
   function applySkin(id) {
     state.skin = SKINS[id] ? id : 'vk1'
     var skin = skinOf(state.skin)
+    // 立绘翻转：只有非「控制台原生」皮肤允许（原生皮肤保持锁定）
+    var flipArt = skin.board !== 'sprite' && state.rotateFlip === true
+    art.style.transform = ''
+    root.classList.toggle('dshvk1-art-flip', flipArt)
     EXPR_ORDER.forEach(function (key) {
       var url = skin.faces[key]
       faces[key].src = url
@@ -1327,6 +1456,8 @@
   // ------------------------------------------------------- balance reading ---
   function applyBalance(bal, snap) {
     if (!isFinite(bal)) return
+    // 抖动保护：与上次读数几乎相同就当作没变，避免同一笔消费被反复结算（音效连响的来源之一）
+    if (!snap && isFinite(state.real) && Math.abs(bal - state.real) < 1e-6) { state.connected = true; return }
     state.connected = true
     var first = !isFinite(state.real)
     var prev = state.real
@@ -1369,6 +1500,11 @@
 
   var lastScreenText = null
   var lastConnected = null
+  function boardlessBalance() {
+    // 除了「控制台原生」（手里有黑板），其余皮肤都把余额放进自动冒出/触发的气泡里
+    return skinOf(state.skin).board !== 'sprite'
+  }
+  var lastBoardlessPush = 0
   function updateScreen() {
     var v = drawnBalance()
     var text = isFinite(v) ? v.toFixed(2) : '--'
@@ -1376,6 +1512,14 @@
     if (text !== lastScreenText) {
       lastScreenText = text
       numEl.textContent = text
+      // 没黑板的皮肤：余额变化时经 cost 通道冒一条气泡（1.5s 内不重复）
+      if (boardlessBalance() && isFinite(v)) {
+        var nowMs2 = Date.now()
+        if (nowMs2 - lastBoardlessPush > 1500) {
+          lastBoardlessPush = nowMs2
+          showBubble('¥' + text, false, 'cost')
+        }
+      }
       // 面板宽 520 CSS px、高约 0.7×520；数字要占可见宽度的一部分：
       // 短数字用 0.46ph，长到 7 位就收到 0.30ph，保证 ¥ + 数字 + 边距不越界。
       var fs = Math.min(0.46, 2.2 / Math.max(3, text.length))
@@ -2344,7 +2488,8 @@
     e.stopPropagation()
     if (state.menuOpen) { closeMenu(); return }
     var r = root.getBoundingClientRect()
-    openMenu(r.right, r.bottom)
+    // 按钮在左侧时菜单往右展开；镜像后按钮到右侧，菜单往左收
+    openMenu(mirrored() ? r.right : r.left, r.top + 2)
   })
   btn.addEventListener('pointerenter', function () { btnOnSolid = true; keepBtn() })
   btn.addEventListener('pointerleave', function () { if (!state.menuOpen) { btnOnSolid = false; releaseBtn() } })
@@ -2513,6 +2658,7 @@
         soundPack: state.soundPack, stepYuan: state.stepYuan,
         bubbleOn: state.bubbleOn, reminders: state.reminders, turnEndOn: state.turnEndOn, bubbleGifOn: state.bubbleGifOn,
         clickSoundOn: state.clickSoundOn, cueSrc: state.cueSrc, skin: state.skin, autoIronOnFeed: state.autoIronOnFeed,
+        idleBubbleOn: state.idleBubbleOn, idleWords: state.idleWords, rotateFlip: state.rotateFlip,
       }))
     } catch (e) {}
   }
@@ -2562,6 +2708,7 @@
     '.dshvk1-cuevollabel{font-size:11px;color:var(--vk-muted)}',
     '.dshvk1-textarea{width:100%;box-sizing:border-box;padding:5px;background:var(--vk-card);border:1px solid var(--vk-border);' +
       'border-radius:5px;font:12px/1.5 system-ui,sans-serif;color:inherit;resize:vertical}',
+    '.dshvk1-file{max-width:56%;font-size:11px;color:var(--vk-muted)}',
     '.dshvk1-reslist{max-height:200px;overflow:auto;border:1px solid var(--vk-border);border-radius:6px;margin:6px 0}',
     '.dshvk1-resrow{display:flex;justify-content:space-between;gap:8px;padding:3px 7px;border-bottom:1px solid var(--vk-border);font-size:11.5px}',
     '.dshvk1-resrow:last-child{border-bottom:none}',
@@ -2597,7 +2744,8 @@
     stopPreview()
     closeSettingsPanel()
     var r = root.getBoundingClientRect()
-    openMenu(r.right, r.bottom)
+    // 按钮在左侧时菜单往右展开；镜像后按钮到右侧，菜单往左收
+    openMenu(mirrored() ? r.right : r.left, r.top + 2)
   })
   settingsHeader.appendChild(settingsBack)
   var settingsTitle = document.createElement('h2')
@@ -2801,6 +2949,8 @@
     draw()
   }
 
+  function renderSettingsIfOpen() { if (settingsOpen) renderSettings() }
+
   function renderSettings() {
     renderGeneration++
     settings.dataset.theme = state.theme
@@ -2814,23 +2964,98 @@
         var b = action(skinWrap, SKINS[id].name, function () { applySkin(id); renderSettings() })
         b.setAttribute('aria-selected', String(state.skin === id))
       })
-      hint('\u63A7\u5236\u53F0\u539F\u751F\uFF1A\u56DB\u8868\u60C5 + \u81EA\u5E26\u5C0F\u9ED1\u677F\uFF1B\u84DD\u53D1\u5973\u4EC6\uFF1A\u5355\u56FE\u7ACB\u7ED8\uFF0C\u9762\u677F\u7531\u63D2\u4EF6\u81EA\u5E26\u5E95\u677F\u3002')
+      // 自定义立绘：上传一张图（最长边 512，PNG），存 IndexedDB 的 skins 表
+      var upRow = element('div', null, content, 'dshvk1-setting')
+      element('span', '\u81EA\u5B9A\u4E49\u7ACB\u7ED8', upRow, 'dshvk1-setting-name')
+      var fileInput = element('input', null, upRow, 'dshvk1-file')
+      fileInput.type = 'file'
+      fileInput.accept = 'image/png,image/jpeg,image/webp'
+      fileInput.addEventListener('change', function () {
+        var file = fileInput.files && fileInput.files[0]
+        if (!file) return
+        shrinkImage(file, function (dataUrl) {
+          if (!dataUrl) { alert('\u56FE\u7247\u8BFB\u53D6\u5931\u8D25'); return }
+          registerCustomSkin(dataUrl)
+          saveCustomSkin(dataUrl, function (ok) {
+            applySkin('custom')
+            renderSettings()
+            if (!ok) alert('\u5B58\u50A8\u5931\u8D25\uFF0C\u672C\u6B21\u4EC5\u4E34\u65F6\u751F\u6548')
+          })
+        })
+      })
+      action(content, '\u5220\u9664\u81EA\u5B9A\u4E49\u7ACB\u7ED8', function () {
+        openSkinDb(function (db) {
+          if (!db) return
+          try {
+            var tx = db.transaction('skins', 'readwrite')
+            tx.objectStore('skins').delete('custom')
+            tx.oncomplete = function () { delete SKINS.custom; applySkin('vk1'); renderSettings() }
+          } catch (err) {}
+        })
+      })
+      hint('\u4E0A\u4F20\u540E\u81EA\u52A8\u5207\u5230\u300C\u81EA\u5B9A\u4E49\u300D\uFF1B\u56FE\u50CF\u6700\u957F\u8FB9\u538B\u5230 512px\uFF0C\u5B58\u5728\u6D4F\u89C8\u5668 IndexedDB\uFF0C\u4E0D\u4E0A\u4F20\u3002')
+      // 图片翻转：只有非「控制台原生」皮肤可用（原生皮肤锁死，不做镜像以外的翻转）
+      if (skinOf(state.skin).board !== 'sprite') {
+        section('\u7ACB\u7ED8\u7FFB\u8F6C')
+        row('\u7FFB\u8F6C\u7ACB\u7ED8\uFF08\u5DE6\u53F3\u5BF9\u8C03\uFF09', checkbox(state.rotateFlip === true, function (v) {
+          state.rotateFlip = v
+          saveOptions()
+          applySkin(state.skin)
+          renderSettings()
+        }))
+        hint('\u63A7\u5236\u53F0\u539F\u751F\u753B\u4E0D\u53EF\u7FFB\u8F6C\uFF08\u5B83\u81EA\u5E26\u65B9\u5411\uFF09\uFF1B\u5176\u4F59\u76AE\u80A4\u53EF\u5355\u72EC\u8BBE\u7F6E\u3002')
+      }
       section('\u529F\u80FD\u5F00\u5173')
       ;[['fxBowl', '\u5145\u503C\u540E\u6389\u843D\u996D\u76C6\uFF08\u624B\u52A8\u62D6\u53D6\uFF09'],
         ['fxPat', '\u9F20\u6807\u629A\u6478\u4F1A\u5F00\u5FC3'],
         ['fxHurt', '\u6263\u8D39\u65F6\u64AD\u653E\u97F3\u6548\u4E0E\u52A8\u753B'],
         ['clickSoundOn', '\u5355\u51FB\u89D2\u8272\u64AD\u653E\u97F3\u6548'],
         ['bubbleOn', '\u663E\u793A\u6C14\u6CE1'],
-        ['autoIronOnFeed', '雷达吸附后铁盆直接扣头'],
+        ['idleBubbleOn', '\u81EA\u52A8\u5192\u51FA\u968F\u673A\u8BCD'],
+        ['autoIronOnFeed', '\u96F7\u8FBE\u5438\u9644\u540E\u94C1\u76C6\u76F4\u63A5\u6263\u5934'],
         ['turnEndOn', '\u4EFB\u52A1\u7ED3\u675F\u97F3\uFF08\u6BCF\u8F6E\uFF09']].forEach(function (it) {
         row(it[1], checkbox(state[it[0]] !== false, function (v) {
           state[it[0]] = v
           saveOptions()
           if (!v && it[0] === 'fxPat') blockPat()
-          if (it[0] === 'turnEndOn') { /* 立即生效，无需额外动作 */ }
         }))
       })
-      hint('\u5173\u6389\u6389\u76C6\u540E\u5145\u503C\u76F4\u63A5\u5165\u8D26\uFF1B\u5173\u6389\u6263\u8D39\u6548\u679C\u4ECD\u4F1A\u7ED3\u7B97\u4F59\u989D\u3002')
+      section('\u81EA\u52A8\u5192\u8BCD')
+      var idleTa = element('textarea', null, content, 'dshvk1-textarea')
+      idleTa.rows = 4
+      idleTa.placeholder = '\u4E00\u884C\u4E00\u53E5\uFF1B\u7559\u7A7A\u5C31\u7528\u5185\u7F6E\u968F\u673A\u8BCD\uFF08\u6765\u81EA\u88C5\u9970\u9CB8\u9C7C\u63D2\u4EF6\uFF09'
+      idleTa.value = (state.idleWords || []).join('\n')
+      action(content, '\u4FDD\u5B58\u81EA\u52A8\u5192\u8BCD', function () {
+        var lines = String(idleTa.value || '').split('\n').map(function (x) { return x.trim().slice(0, 80) }).filter(Boolean).slice(0, 40)
+        state.idleWords = lines
+        saveOptions()
+        renderSettings()
+      })
+      action(content, '把当前设置存为默认', function () {
+        // 当前 options 全量 POST 给宿主 → defaults.json；新装或清了 localStorage 时用它
+        var body = {
+          fxBowl: state.fxBowl, fxPat: state.fxPat, fxHurt: state.fxHurt,
+          theme: state.theme, cueVolumes: state.cueVolumes,
+          radarOn: state.radarOn, dropIntervalSec: state.dropIntervalSec,
+          soundPack: state.soundPack, stepYuan: state.stepYuan,
+          bubbleOn: state.bubbleOn, reminders: state.reminders, turnEndOn: state.turnEndOn,
+          bubbleGifOn: state.bubbleGifOn, clickSoundOn: state.clickSoundOn,
+          cueSrc: state.cueSrc, skin: state.skin, autoIronOnFeed: state.autoIronOnFeed,
+          idleBubbleOn: state.idleBubbleOn, idleWords: state.idleWords, rotateFlip: state.rotateFlip,
+        }
+        fetch(BASE + '/defaults.json', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+        }).then(function (r) { return r.json() })
+          .then(function (d) { showBubble(d && d.ok ? '已保存为默认' : '保存失败', true, 'cost') })
+          .catch(function () { showBubble('保存失败', true, 'cost') })
+      })
+      action(content, '\u6062\u590D\u5185\u7F6E\u968F\u673A\u8BCD', function () {
+        state.idleWords = []
+        saveOptions()
+        renderSettings()
+      })
+      hint('\u7559\u7A7A = \u7528\u5185\u7F6E\u90A3\u5957\u52A0\u6743\u968F\u673A\u8BCD\uFF1B\u6BCF 20\u201345 \u79D2\u5192\u4E00\u53E5\uFF0C\u4E0E\u6D88\u8017\u63D0\u793A\u4E92\u4E0D\u8986\u76D6\u3002')
     } else if (settingsPage === 'snap') {
       section('\u5438\u9644\u533A\u57DF')
       chips([['ratio', '\u6309\u6BD4\u4F8B'], ['px', '\u6309\u50CF\u7D20'], ['off', '\u5173\u95ED\u5438\u9644']], snapConfig.mode, function (mode) {
@@ -2997,8 +3222,13 @@
   function initSoundLibrary() {
     try {
       activeClips = JSON.parse(localStorage.getItem('dsh-vk1-active-clips') || '{}') || {}
-      var request = indexedDB.open('dsh-vk1-sounds', 1)
-      request.onupgradeneeded = function () { request.result.createObjectStore('clips', { keyPath: 'id' }) }
+      var request = indexedDB.open('dsh-vk1-sounds', 2)
+      request.onupgradeneeded = function (ev) {
+        var db = request.result
+        if (!db.objectStoreNames.contains('clips')) db.createObjectStore('clips', { keyPath: 'id' })
+        // v2：自定义立绘图（一个 key 'custom' 一条记录）
+        if (!db.objectStoreNames.contains('skins')) db.createObjectStore('skins', { keyPath: 'id' })
+      }
       request.onerror = function () { libraryStatus = '浏览器音效存储不可用，仍可使用出厂音效。' }
       request.onsuccess = function () {
         if (stopped) { request.result.close(); return }
@@ -3166,6 +3396,12 @@
       if (typeof options.bubbleGifOn === 'boolean') state.bubbleGifOn = options.bubbleGifOn
       if (typeof options.clickSoundOn === 'boolean') state.clickSoundOn = options.clickSoundOn
       if (typeof options.autoIronOnFeed === 'boolean') state.autoIronOnFeed = options.autoIronOnFeed
+      if (typeof options.idleBubbleOn === 'boolean') state.idleBubbleOn = options.idleBubbleOn
+      if (typeof options.rotateFlip === 'boolean') state.rotateFlip = options.rotateFlip
+      if (Array.isArray(options.idleWords)) {
+        state.idleWords = options.idleWords.map(function (x) { return String(x == null ? '' : x).slice(0, 80) })
+          .filter(function (x) { return x.trim() !== '' }).slice(0, 40)
+      }
       if (typeof options.skin === 'string' && SKINS[options.skin]) state.skin = options.skin
       if (Array.isArray(options.cueSrc)) state.cueSrc = options.cueSrc.map(function (x) { return String(x || '') })
       if (Array.isArray(options.reminders)) {
@@ -3194,6 +3430,13 @@
   updateScreen()
   setupHitTest()
   // 应用持久化的皮肤（建 DOM 时只换了图，这里补齐底板样式与命中图）
+  loadCustomSkin(function (dataUrl) {
+    if (dataUrl) {
+      registerCustomSkin(dataUrl)
+      if (state.skin === 'custom') applySkin('custom')
+      else renderSettingsIfOpen()
+    }
+  })
   applySkin(state.skin)
   rebuildPools(state.cueSrc || null)
   initSoundLibrary()
