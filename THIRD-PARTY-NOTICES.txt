@@ -1,0 +1,15 @@
+dsh-vk1-balance-pet — third-party notices
+
+1) 角色差分、米饭盆、铁盆、音效
+   来源：https://github.com/VKmich16/VK-1 （MIT License）
+   逐文件来源与校验值见 asset-sources.json。
+
+2) 插件基线（宿主注入、页面脚本结构、素材路由）
+   来源：https://github.com/YCTS-otree/VK-1 的 dsh-plugin/ （MIT License）
+   本仓库在其基础上改写了余额渠道、吸附模型、掉盆与扣费行为，并移除了更新检查。
+
+3) 吸附与余额渠道的设计参考
+   https://github.com/MeteorNOX/DeepSeek-Balance-Whale-Widget （MIT License）
+   snapBounds / snapZones / 翻转线、账号钱包合计口径、注入行的 script 与 script-src 差异说明。
+
+MIT License 文本见仓库根目录 LICENSE。

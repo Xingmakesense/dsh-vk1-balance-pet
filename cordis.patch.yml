@@ -1,0 +1,6 @@
+# dsh-vk1-balance-pet —— DSH bundle patch
+#
+# 入口用「锚定在 patch 文件旁的相对路径」，避免包名入口命中 Loader 的旧模块缓存。
+- insert:
+    - id: dsh-vk1-balance-pet
+      name: ./index.js
