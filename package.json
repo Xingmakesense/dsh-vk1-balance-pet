@@ -1,6 +1,6 @@
 {
   "name": "dsh-vk1-balance-pet",
-  "version": "2.4.1",
+  "version": "2.4.2",
   "private": true,
   "description": "DSH 网页余额桌宠（大肥鱼）：自定义立绘与翻转、余额并入气泡、逐音效选源、默认配置云端保存、统一资源分发；余额走官方账号凭据，无 API key 输入。",
   "type": "module",

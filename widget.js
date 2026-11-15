@@ -335,6 +335,10 @@
       'max-width:min(280px,64vw);padding:5px 9px;border-radius:9px;box-sizing:border-box;' +
       'background:rgba(20,28,46,.92);color:#eaf1ff;font:12px/1.45 system-ui,sans-serif;border:1px solid rgba(158,182,224,.45);' +
       'box-shadow:0 4px 14px rgba(0,0,0,.32);pointer-events:none;z-index:10005}',
+    // 立绘缺失时的兜底：藏掉表情层，给角色区域一块圆角底板 + 面板底色
+    '.dshvk1-root.dshvk1-art-missing .dshvk1-face{display:none!important}',
+    '.dshvk1-root.dshvk1-art-missing .dshvk1-body{background:rgba(26,33,50,.92);border:1px solid rgba(120,140,180,.5);border-radius:14px}',
+    '.dshvk1-root.dshvk1-art-missing .dshvk1-panel{background:linear-gradient(180deg,rgba(18,23,36,.96),rgba(10,14,24,.96));border-radius:8px;padding:4% 3%;box-sizing:border-box}',
     '.dshvk1-bubbletext{flex:1 1 auto;min-width:0;white-space:pre-wrap;overflow-wrap:anywhere;word-break:break-word}',
     '.dshvk1-radar{position:absolute;left:0;top:0;width:100%;height:100%;pointer-events:none;overflow:visible}',
     '.dshvk1-root{position:fixed;left:0;top:0;width:var(--dshvk1-s);height:var(--dshvk1-s);pointer-events:none;user-select:none;-webkit-user-select:none;z-index:9998;font-family:inherit;transition:left .16s ease,top .16s ease}',
@@ -423,9 +427,11 @@
     var im = document.createElement('img')
     im.className = 'dshvk1-face'
     im.src = skinOf(bootSkinId()).faces[key]
-    im.alt = LABEL_TEXT
+    // 装饰性图片：alt 留空，否则图挂了会把 alt 文本画进画面（面板文字会和它重叠）
+    im.alt = ''
     im.draggable = false
     im.style.display = key === 'happy' ? 'block' : 'none'
+    im.addEventListener('error', function () { onArtError() })
     art.appendChild(im)
     faces[key] = im
 
@@ -437,6 +443,16 @@
     art.appendChild(fl)
     flashes[key] = fl
   })
+
+  // 立绘缺失（路由 404 / 皮肤图损坏）时的兜底：隐藏表情层 + 给块纯色底板，
+  // 让余额仍然可读，而不是一团破图标压着文字。
+  var artErrorHandled = false
+  function onArtError() {
+    if (artErrorHandled) return
+    artErrorHandled = true
+    root.classList.add('dshvk1-art-missing')
+    try { console.warn('[vk1] 立绘加载失败（素材路由 404？）：已切换为纯色兜底底板') } catch (err) {}
+  }
 
   var panel = document.createElement('div')
   panel.className = 'dshvk1-panel'

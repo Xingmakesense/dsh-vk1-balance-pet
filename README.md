@@ -7,6 +7,13 @@
 以 [YCTS-otree/VK-1](https://github.com/YCTS-otree/VK-1) 的 `dsh-plugin` 为基线改造而来，
 **尺寸、位置与菜单形态照搬 [dsh-whale-widget](https://github.com/MeteorNOX/DeepSeek-Balance-Whale-Widget)**。
 
+## v2.4.2 的变化（相对 v2.4.1）
+
+| 项 | v2.4.2 |
+| --- | --- |
+| 破图标 | 立绘 `alt` 留空（原来会把 alt 文本画进画面，与面板文字重叠） |
+| 素材缺失兜底 | `error` → `dshvk1-art-missing`：隐藏表情层、圆角底板、面板深色底，余额仍可读 |
+
 ## v2.4.1 的变化（相对 v2.4.0）
 
 | 项 | v2.4.1 |
